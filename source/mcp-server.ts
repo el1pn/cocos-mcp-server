@@ -1,6 +1,5 @@
 import * as http from 'http';
 import * as url from 'url';
-import { v4 as uuidv4 } from 'uuid';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
 import { SceneTools } from './tools/scene-tools';
 import { NodeTools } from './tools/node-tools';
@@ -18,12 +17,24 @@ import { AssetAdvancedTools } from './tools/asset-advanced-tools';
 import { ValidationTools } from './tools/validation-tools';
 
 export class MCPServer {
+    private static readonly MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
+    private static readonly MAX_TOOL_QUEUE_LENGTH = 100;
+    private static readonly TOOL_EXECUTION_TIMEOUT_MS = 60_000;
+    private static readonly MAX_CONCURRENT_TOOLS = 5;
+
     private settings: MCPServerSettings;
     private httpServer: http.Server | null = null;
     private clients: Map<string, MCPClient> = new Map();
     private tools: Record<string, any> = {};
     private toolsList: ToolDefinition[] = [];
     private enabledTools: any[] = []; // 存储启用的工具列表
+    private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
+    private toolQueue: Array<{
+        run: () => Promise<any>;
+        resolve: (value: any) => void;
+        reject: (reason?: any) => void;
+    }> = [];
+    private activeToolCount = 0;
 
     constructor(settings: MCPServerSettings) {
         this.settings = settings;
@@ -90,17 +101,20 @@ export class MCPServer {
 
     private setupTools(): void {
         this.toolsList = [];
+        this.toolExecutors.clear();
         
         // 如果没有启用工具配置，返回所有工具
         if (!this.enabledTools || this.enabledTools.length === 0) {
             for (const [category, toolSet] of Object.entries(this.tools)) {
                 const tools = toolSet.getTools();
                 for (const tool of tools) {
+                    const toolName = `${category}_${tool.name}`;
                     this.toolsList.push({
-                        name: `${category}_${tool.name}`,
+                        name: toolName,
                         description: tool.description,
                         inputSchema: tool.inputSchema
                     });
+                    this.toolExecutors.set(toolName, (args: any) => toolSet.execute(tool.name, args));
                 }
             }
         } else {
@@ -117,6 +131,7 @@ export class MCPServer {
                             description: tool.description,
                             inputSchema: tool.inputSchema
                         });
+                        this.toolExecutors.set(toolName, (args: any) => toolSet.execute(tool.name, args));
                     }
                 }
             }
@@ -135,12 +150,18 @@ export class MCPServer {
     }
 
     public async executeToolCall(toolName: string, args: any): Promise<any> {
+        const normalizedArgs = this.normalizeToolArguments(args);
+        const executor = this.toolExecutors.get(toolName);
+        if (executor) {
+            return await executor(normalizedArgs);
+        }
+
         const parts = toolName.split('_');
         const category = parts[0];
         const toolMethodName = parts.slice(1).join('_');
         
         if (this.tools[category]) {
-            return await this.tools[category].execute(toolMethodName, args);
+            return await this.tools[category].execute(toolMethodName, normalizedArgs);
         }
         
         throw new Error(`Tool ${toolName} not found`);
@@ -202,29 +223,31 @@ export class MCPServer {
     }
     
     private async handleMCPRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-        let body = '';
-        
-        req.on('data', (chunk) => {
-            body += chunk.toString();
-        });
-        
-        req.on('end', async () => {
+        this.readRequestBody(req)
+            .then(async (body) => {
             try {
                 // Enhanced JSON parsing with better error handling
                 let message;
                 try {
                     message = JSON.parse(body);
                 } catch (parseError: any) {
-                    // Try to fix common JSON issues
-                    const fixedBody = this.fixCommonJsonIssues(body);
-                    try {
-                        message = JSON.parse(fixedBody);
-                        console.log('[MCPServer] Fixed JSON parsing issue');
-                    } catch (secondError) {
+                    if (!this.shouldTryFixJson(body)) {
                         throw new Error(`JSON parsing failed: ${parseError.message}. Original body: ${body.substring(0, 500)}...`);
                     }
+
+                    // Try to fix common JSON issues
+                    const fixedBody = this.fixCommonJsonIssues(body);
+                    message = JSON.parse(fixedBody);
                 }
-                
+
+                // MCP notifications have no 'id' field — respond with 202 Accepted
+                if (message.id === undefined || message.id === null) {
+                    console.log(`[MCPServer] Received notification: ${message.method}`);
+                    res.writeHead(202);
+                    res.end();
+                    return;
+                }
+
                 const response = await this.handleMessage(message);
                 res.writeHead(200);
                 res.end(JSON.stringify(response));
@@ -240,6 +263,17 @@ export class MCPServer {
                     }
                 }));
             }
+        })
+        .catch((error: any) => {
+            res.writeHead(413);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32600,
+                    message: error.message || 'Request body too large'
+                }
+            }));
         });
     }
 
@@ -253,11 +287,12 @@ export class MCPServer {
                 case 'tools/list':
                     result = { tools: this.getAvailableTools() };
                     break;
-                case 'tools/call':
+                case 'tools/call': {
                     const { name, arguments: args } = params;
-                    const toolResult = await this.executeToolCall(name, args);
+                    const toolResult = await this.enqueueToolExecution(name, args);
                     result = { content: [{ type: 'text', text: JSON.stringify(toolResult) }] };
                     break;
+                }
                 case 'initialize':
                     // MCP initialization
                     result = {
@@ -285,7 +320,7 @@ export class MCPServer {
                 jsonrpc: '2.0',
                 id,
                 error: {
-                    code: -32603,
+                    code: error.message === 'Tool queue is full, please retry later' ? -32029 : -32603,
                     message: error.message
                 }
             };
@@ -332,13 +367,8 @@ export class MCPServer {
     }
 
     private async handleSimpleAPIRequest(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
-        let body = '';
-        
-        req.on('data', (chunk) => {
-            body += chunk.toString();
-        });
-        
-        req.on('end', async () => {
+        this.readRequestBody(req)
+            .then(async (body) => {
             try {
                 // Extract tool name from path like /api/node/set_position
                 const pathParts = pathname.split('/').filter(p => p);
@@ -357,11 +387,20 @@ export class MCPServer {
                 try {
                     params = body ? JSON.parse(body) : {};
                 } catch (parseError: any) {
+                    if (!this.shouldTryFixJson(body)) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({
+                            error: 'Invalid JSON in request body',
+                            details: parseError.message,
+                            receivedBody: body.substring(0, 200)
+                        }));
+                        return;
+                    }
+
                     // Try to fix JSON issues
                     const fixedBody = this.fixCommonJsonIssues(body);
                     try {
                         params = JSON.parse(fixedBody);
-                        console.log('[MCPServer] Fixed API JSON parsing issue');
                     } catch (secondError: any) {
                         res.writeHead(400);
                         res.end(JSON.stringify({
@@ -374,7 +413,7 @@ export class MCPServer {
                 }
                 
                 // Execute tool
-                const result = await this.executeToolCall(fullToolName, params);
+                const result = await this.enqueueToolExecution(fullToolName, params);
                 
                 res.writeHead(200);
                 res.end(JSON.stringify({
@@ -385,14 +424,100 @@ export class MCPServer {
                 
             } catch (error: any) {
                 console.error('Simple API error:', error);
-                res.writeHead(500);
+                res.writeHead(error.message === 'Tool queue is full, please retry later' ? 429 : 500);
                 res.end(JSON.stringify({
                     success: false,
                     error: error.message,
                     tool: pathname
                 }));
             }
+        })
+        .catch((error: any) => {
+            res.writeHead(413);
+            res.end(JSON.stringify({
+                success: false,
+                error: error.message || 'Request body too large',
+                tool: pathname
+            }));
         });
+    }
+
+    private async readRequestBody(req: http.IncomingMessage): Promise<string> {
+        return new Promise((resolve, reject) => {
+            const chunks: Buffer[] = [];
+            let total = 0;
+
+            req.on('data', (chunk: Buffer) => {
+                total += chunk.length;
+                if (total > MCPServer.MAX_REQUEST_BODY_BYTES) {
+                    req.destroy();
+                    reject(new Error(`Request body exceeds ${MCPServer.MAX_REQUEST_BODY_BYTES} bytes`));
+                    return;
+                }
+                chunks.push(chunk);
+            });
+
+            req.on('end', () => {
+                resolve(Buffer.concat(chunks).toString('utf8'));
+            });
+
+            req.on('error', reject);
+        });
+    }
+
+    private shouldTryFixJson(body: string): boolean {
+        if (!body || body.length > 256 * 1024) {
+            return false;
+        }
+        return body.includes('\'') || body.includes(',}') || body.includes(',]') || body.includes('\n') || body.includes('\t');
+    }
+
+    private normalizeToolArguments(args: any): any {
+        if (!args || typeof args !== 'object' || Array.isArray(args)) {
+            return args;
+        }
+
+        if (args.action === undefined && typeof args.operation === 'string') {
+            return { ...args, action: args.operation };
+        }
+
+        return args;
+    }
+
+    private async enqueueToolExecution(toolName: string, args: any): Promise<any> {
+        if (this.toolQueue.length >= MCPServer.MAX_TOOL_QUEUE_LENGTH) {
+            throw new Error('Tool queue is full, please retry later');
+        }
+
+        return new Promise((resolve, reject) => {
+            this.toolQueue.push({
+                run: () => this.executeToolCall(toolName, args),
+                resolve,
+                reject
+            });
+            this.processNextToolQueue();
+        });
+    }
+
+    private processNextToolQueue(): void {
+        while (this.activeToolCount < MCPServer.MAX_CONCURRENT_TOOLS && this.toolQueue.length > 0) {
+            const task = this.toolQueue.shift();
+            if (!task) break;
+
+            this.activeToolCount++;
+
+            const timeoutPromise = new Promise((_, reject) => {
+                setTimeout(() => reject(new Error(`Tool execution timeout (${MCPServer.TOOL_EXECUTION_TIMEOUT_MS}ms)`)), MCPServer.TOOL_EXECUTION_TIMEOUT_MS);
+            });
+
+            Promise.race([task.run(), timeoutPromise])
+                .then((result) => task.resolve(result))
+                .catch((err) => task.reject(err))
+                .finally(() => {
+                    this.activeToolCount--;
+                    this.processNextToolQueue();
+                });
+        }
     }
 
     private getSimplifiedToolsList(): any[] {

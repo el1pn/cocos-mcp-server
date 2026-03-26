@@ -75,6 +75,7 @@ export const methods: { [key: string]: (...any: any) => any } = {
             mcpServer = new MCPServer(settings);
             mcpServer.start();
         }
+        return { success: true, settings };
     },
 
     /**
