@@ -1,36 +1,19 @@
 # Cocos Creator MCP Server Plugin
 
-**[📖 English](README.md)**  **[📖 中文](README.CN.md)**
-
 A comprehensive MCP (Model Context Protocol) server plugin for Cocos Creator 3.8+, enabling AI assistants to interact with the Cocos Creator editor through standardized protocols. One-click installation and use, eliminating all cumbersome environments and configurations. Claude clients Claude CLI and Cursor have been tested, and other editors are also perfectly supported in theory.
 
 **🚀 Now provides 50 powerful integrated tools, achieving 99% editor control!**
 
-## Video Demonstrations and Tutorials
-
-[<img width="503" height="351" alt="image" src="https://github.com/user-attachments/assets/f186ce14-9ffc-4a29-8761-48bdd7c1ea16" />](https://www.bilibili.com/video/BV1mB8dzfEw8?spm_id_from=333.788.recommend_more_video.0&vd_source=6b1ff659dd5f04a92cc6d14061e8bb92)
-
-
-
-## Quick Links
-
-- **[📖 Complete Feature Guide (English)](FEATURE_GUIDE_EN.md)** - Detailed documentation for all 50 tools (to be completed)
-- **[📖 完整功能指南 (中文)](FEATURE_GUIDE_CN.md)** - All 50 tools detailed documentation (to be completed)
-
-
 ## Changelog
 
-## 🚀 Major Update v1.5.0 (July 29, 2024) (Already updated in Cocos Store, GitHub version will be synchronized in next version)
+### v1.5.0
 
-Cocos store: https://store.cocos.com/app/detail/7941
-
-- **Tool Streamlining and Refactoring**: Condensed the original 150+ tools into 50 high-reuse, high-coverage core tools, removing all invalid redundant code, greatly improving usability and maintainability.
-- **Unified Operation Codes**: All tools adopt "operation code + parameters" mode, greatly simplifying AI calling process, improving AI calling success rate, reducing AI calling times, and lowering 50% token consumption.
-- **Comprehensive Prefab Function Upgrade**: Completely fixed and perfected all core prefab functions including creation, instantiation, synchronization, references, etc., supporting complex reference relationships, 100% aligned with official format.
-- **Event Binding and Legacy Function Completion**: Added and implemented event binding, node/component/asset legacy functions, all methods completely aligned with official implementation.
-- **Interface Optimization**: All interface parameters are clearer, documentation is more complete, AI can understand and call more easily.
+- **Tool Streamlining and Refactoring**: Condensed the original 150+ tools into 50 high-reuse, high-coverage core tools, greatly improving usability and maintainability.
+- **Unified Operation Codes**: All tools adopt "operation code + parameters" mode, simplifying AI calling process, reducing 50% token consumption.
+- **Comprehensive Prefab Function Upgrade**: Completely fixed and perfected all core prefab functions, 100% aligned with official format.
+- **Event Binding and Legacy Function Completion**: All methods completely aligned with official implementation.
 - **Plugin Panel Optimization**: Panel UI is more concise, operations are more intuitive.
-- **Performance and Compatibility Improvements**: Overall architecture is more efficient, compatible with Cocos Creator 3.8.6 and all versions above.
+- **Performance and Compatibility Improvements**: Compatible with Cocos Creator 3.8.6 and all versions above.
 
 
 ## Tool System and Operation Codes
@@ -67,81 +50,21 @@ Cocos store: https://store.cocos.com/app/detail/7941
 - **broadcast_message**: Message broadcasting
 
 
-### v1.4.0 - July 26, 2025 (Current github version)
+### v1.4.0
 
-#### 🎯 Major Functionality Fixes
-- **Complete Prefab Creation Fix**: Thoroughly resolved the issue of component/node/resource type reference loss during prefab creation
-- **Proper Reference Handling**: Implemented reference formats completely consistent with manually created prefabs
-  - **Internal References**: Node and component references within prefabs correctly converted to `{"__id__": x}` format
-  - **External References**: Node and component references outside prefabs correctly set to `null`
-  - **Resource References**: Prefab, texture, sprite frame and other resource references fully preserved in UUID format
-- **Component/Script Removal API Standardization**: Now, when removing a component or script, you must provide the component's cid (type field), not the script name or class name. AI and users should first use getComponents to get the type field (cid), then pass it to removeComponent. This ensures 100% accurate removal of all component and script types, compatible with all Cocos Creator versions.
+- Complete prefab creation fix with proper reference handling
+- Component/script removal API standardization (use cid instead of class name)
+- Fixed prefab import errors and engine compatibility issues
 
-#### 🔧 Core Improvements
-- **Index Order Optimization**: Adjusted prefab object creation order to ensure consistency with Cocos Creator standard format
-- **Component Type Support**: Extended component reference detection to support all cc. prefixed component types (Label, Button, Sprite, etc.)
-- **UUID Mapping Mechanism**: Perfected internal UUID to index mapping system, ensuring correct reference relationships
-- **Property Format Standardization**: Fixed component property order and format, eliminating engine parsing errors
+### v1.3.0
 
-#### 🐛 Bug Fixes
-- **Fixed Prefab Import Errors**: Resolved `Cannot read properties of undefined (reading '_name')` error
-- **Fixed Engine Compatibility**: Resolved `placeHolder.initDefault is not a function` error
-- **Fixed Property Overwriting**: Prevented critical properties like `_objFlags` from being overwritten by component data
-- **Fixed Reference Loss**: Ensured all types of references are correctly saved and loaded
+- Integrated tool management panel with configuration system
+- Vue 3 Composition API upgrade
+- Tool state persistence and IPC communication fixes
 
-#### 📈 Feature Enhancements
-- **Complete Component Property Preservation**: All component properties including private properties (like _group, _density, etc.)
-- **Child Node Structure Support**: Proper handling of prefab hierarchical structures and child node relationships
-- **Transform Property Processing**: Preserved node position, rotation, scale, and layer information
-- **Debug Information Optimization**: Added detailed reference processing logs for easier issue tracking
+### v1.2.0
 
-#### 💡 Technical Breakthroughs
-- **Reference Type Identification**: Intelligently distinguish between internal and external references, avoiding invalid references
-- **Format Compatibility**: Generated prefabs are 100% compatible with manually created prefab formats
-- **Engine Integration**: Prefabs can be properly mounted to scenes without any runtime errors
-- **Performance Optimization**: Optimized prefab creation workflow, improving processing efficiency for large prefabs
-
-**🎉 Prefab creation functionality is now fully operational, supporting complex component reference relationships and complete prefab structures!**
-
-### v1.3.0 - July 25, 2024
-
-#### 🆕 New Features
-- **Integrated Tool Management Panel**: Added comprehensive tool management functionality directly into the main control panel
-- **Tool Configuration System**: Implemented selective tool enabling/disabling with persistent configurations
-- **Dynamic Tool Loading**: Enhanced tool discovery to dynamically load all 158 available tools from the MCP server
-- **Real-time Tool State Management**: Added real-time updates for tool counts and status when individual tools are toggled
-- **Configuration Persistence**: Automatic saving and loading of tool configurations across editor sessions
-
-#### 🔧 Improvements
-- **Unified Panel Interface**: Merged tool management into the main MCP server panel as a tab, eliminating the need for separate panels
-- **Enhanced Server Settings**: Improved server configuration management with better persistence and loading
-- **Vue 3 Integration**: Upgraded to Vue 3 Composition API for better reactivity and performance
-- **Better Error Handling**: Added comprehensive error handling with rollback mechanisms for failed operations
-- **Improved UI/UX**: Enhanced visual design with proper dividers, distinct block styles, and non-transparent modal backgrounds
-
-#### 🐛 Bug Fixes
-- **Fixed Tool State Persistence**: Resolved issues where tool states would reset upon tab switching or panel re-opening
-- **Fixed Configuration Loading**: Corrected server settings loading issues and message registration problems
-- **Fixed Checkbox Interactions**: Resolved checkbox unchecking issues and improved reactivity
-- **Fixed Panel Scrolling**: Ensured proper scrolling functionality in the tool management panel
-- **Fixed IPC Communication**: Resolved various IPC communication issues between frontend and backend
-
-#### 🏗️ Technical Improvements
-- **Simplified Architecture**: Removed multi-configuration complexity, focusing on single configuration management
-- **Better Type Safety**: Enhanced TypeScript type definitions and interfaces
-- **Improved Data Synchronization**: Better synchronization between frontend UI state and backend tool manager
-- **Enhanced Debugging**: Added comprehensive logging and debugging capabilities
-
-#### 📊 Statistics
-- **Total Tools**: Increased from 151 to 158 tools
-- **Categories**: 13 tool categories with comprehensive coverage
-- **Editor Control**: Achieved 98% editor functionality coverage
-
-### v1.2.0 - Previous Version
-- Initial release with 151 tools
-- Basic MCP server functionality
-- Scene, node, component, and prefab operations
-- Project control and debugging tools
+- Initial release with basic MCP server functionality
 
 
 
@@ -396,22 +319,6 @@ The plugin is fully written in TypeScript with:
 
 Enable debug logging in the plugin panel for detailed operation logs.
 
-### Using Debug Tools
-
-```json
-{
-  "tool": "debug_get_console_logs",
-  "arguments": {"limit": 50, "filter": "error"}
-}
-```
-
-```json
-{
-  "tool": "debug_validate_scene",
-  "arguments": {"checkMissingAssets": true}
-}
-```
-
 ## Requirements
 
 - Cocos Creator 3.8.6 or later
@@ -420,8 +327,4 @@ Enable debug logging in the plugin panel for detailed operation logs.
 
 ## License
 
-This plug-in is for Cocos Creator project use, and the source code is packaged together, which can be used for learning and communication. It is not encrypted. It can support your own secondary development and optimization. Any code of this project or its derivative code cannot be used for any commercial purpose or resale. If you need commercial use, please contact me.
-
-## Contact me to join the group
-<img alt="image" src="https://github.com/user-attachments/assets/a276682c-4586-480c-90e5-6db132e89e0f" width="400" height="400" />
-
+This plugin is for Cocos Creator project use. The source code is provided for learning, communication, and secondary development. Any code of this project or its derivative code cannot be used for commercial purposes or resale.
