@@ -27,7 +27,7 @@ export class MCPServer {
     private clients: Map<string, MCPClient> = new Map();
     private tools: Record<string, any> = {};
     private toolsList: ToolDefinition[] = [];
-    private enabledTools: any[] = []; // 存储启用的工具列表
+    private enabledTools: any[] = []; // Stores the list of enabled tools
     private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
     private toolQueue: Array<{
         run: () => Promise<any>;
@@ -103,7 +103,7 @@ export class MCPServer {
         this.toolsList = [];
         this.toolExecutors.clear();
         
-        // 如果没有启用工具配置，返回所有工具
+        // If no tool configuration is enabled, return all tools
         if (!this.enabledTools || this.enabledTools.length === 0) {
             for (const [category, toolSet] of Object.entries(this.tools)) {
                 const tools = toolSet.getTools();
@@ -118,7 +118,7 @@ export class MCPServer {
                 }
             }
         } else {
-            // 根据启用的工具配置过滤
+            // Filter based on enabled tool configuration
             const enabledToolNames = new Set(this.enabledTools.map(tool => `${tool.category}_${tool.name}`));
             
             for (const [category, toolSet] of Object.entries(this.tools)) {
@@ -142,7 +142,7 @@ export class MCPServer {
 
     public getFilteredTools(enabledTools: any[]): ToolDefinition[] {
         if (!enabledTools || enabledTools.length === 0) {
-            return this.toolsList; // 如果没有过滤配置，返回所有工具
+            return this.toolsList; // If no filter config, return all tools
         }
 
         const enabledToolNames = new Set(enabledTools.map(tool => `${tool.category}_${tool.name}`));
@@ -177,7 +177,7 @@ export class MCPServer {
     public updateEnabledTools(enabledTools: any[]): void {
         console.log(`[MCPServer] Updating enabled tools: ${enabledTools.length} tools`);
         this.enabledTools = enabledTools;
-        this.setupTools(); // 重新设置工具列表
+        this.setupTools(); // Re-setup tool list
     }
 
     public getSettings(): MCPServerSettings {

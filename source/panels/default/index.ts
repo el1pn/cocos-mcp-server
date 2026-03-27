@@ -6,7 +6,7 @@ import { createApp, App, defineComponent, ref, computed, onMounted, watch } from
 
 const panelDataMap = new WeakMap<any, App>();
 
-// 定义工具配置接口
+// Define tool configuration interface
 interface ToolConfig {
     category: string;
     name: string;
@@ -14,7 +14,7 @@ interface ToolConfig {
     description: string;
 }
 
-// 定义服务器设置接口
+// Define server settings interface
 interface ServerSettings {
     port: number;
     autoStart: boolean;
@@ -42,10 +42,10 @@ module.exports = Editor.Panel.define({
             const app = createApp({});
             app.config.compilerOptions.isCustomElement = (tag) => tag.startsWith('ui-');
 
-            // 创建主应用组件
+            // Create main app component
             app.component('McpServerApp', defineComponent({
                 setup() {
-                    // 响应式数据
+                    // Reactive data
                     const activeTab = ref('server');
                     const serverRunning = ref(false);
                     const connectedClients = ref(0);
@@ -71,7 +71,7 @@ module.exports = Editor.Panel.define({
                         }, baseText);
                     };
 
-                    // 计算属性
+                    // Computed properties
                     const statusClass = computed(() => ({
                         'status-running': serverRunning.value,
                         'status-stopped': !serverRunning.value,
@@ -88,7 +88,7 @@ module.exports = Editor.Panel.define({
 
                     const settingsChanged = ref(false);
 
-                    // 方法
+                    // Methods
                     const switchTab = (tabName: string) => {
                         activeTab.value = tabName;
                         if (tabName === 'tools') {
@@ -291,7 +291,7 @@ module.exports = Editor.Panel.define({
                             console.log('[Vue App] Using default server settings');
                         }
 
-                        // Watch sau khi load xong để tránh trigger settingsChanged khi load
+                        // Watch after loading is complete to avoid triggering settingsChanged during load
                         watch(settings, () => {
                             settingsChanged.value = true;
                         }, { deep: true });

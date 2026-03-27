@@ -291,9 +291,13 @@ Enable debug logging in the plugin panel for detailed operation logs.
 
 ## Requirements
 
-- Cocos Creator 3.8.6 or later
+- Cocos Creator 3.8.0 or later
 - Node.js (bundled with Cocos Creator)
 - TypeScript (installed as dev dependency)
+
+## Acknowledgments
+
+This project is forked from the original [cocos-mcp-server](https://github.com/DaxianLee/cocos-mcp-server) by **LiDaxian**.
 
 ## License
 

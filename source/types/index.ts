@@ -126,7 +126,7 @@ export interface ToolExecutor {
     execute(toolName: string, args: any): Promise<ToolResponse>;
 }
 
-// 工具配置管理相关接口
+// Tool configuration management interfaces
 export interface ToolConfig {
     category: string;
     name: string;
