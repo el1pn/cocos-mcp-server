@@ -4,18 +4,6 @@ A comprehensive MCP (Model Context Protocol) server plugin for Cocos Creator 3.8
 
 **🚀 Now provides 50 powerful integrated tools, achieving 99% editor control!**
 
-## Changelog
-
-### v1.5.0
-
-- **Tool Streamlining and Refactoring**: Condensed the original 150+ tools into 50 high-reuse, high-coverage core tools, greatly improving usability and maintainability.
-- **Unified Operation Codes**: All tools adopt "operation code + parameters" mode, simplifying AI calling process, reducing 50% token consumption.
-- **Comprehensive Prefab Function Upgrade**: Completely fixed and perfected all core prefab functions, 100% aligned with official format.
-- **Event Binding and Legacy Function Completion**: All methods completely aligned with official implementation.
-- **Plugin Panel Optimization**: Panel UI is more concise, operations are more intuitive.
-- **Performance and Compatibility Improvements**: Compatible with Cocos Creator 3.8.6 and all versions above.
-
-
 ## Tool System and Operation Codes
 
 - All tools are named with "category_operation", parameters use unified Schema, support multiple operation code (action) switching, greatly improving flexibility and extensibility.
@@ -48,24 +36,6 @@ A comprehensive MCP (Model Context Protocol) server plugin for Cocos Creator 3.8
 - **preferences_manage**: Preferences settings
 - **server_info**: Server information
 - **broadcast_message**: Message broadcasting
-
-
-### v1.4.0
-
-- Complete prefab creation fix with proper reference handling
-- Component/script removal API standardization (use cid instead of class name)
-- Fixed prefab import errors and engine compatibility issues
-
-### v1.3.0
-
-- Integrated tool management panel with configuration system
-- Vue 3 Composition API upgrade
-- Tool state persistence and IPC communication fixes
-
-### v1.2.0
-
-- Initial release with basic MCP server functionality
-
 
 
 ## Quick Usage
