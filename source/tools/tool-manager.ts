@@ -10,12 +10,35 @@ export class ToolManager {
     constructor() {
         this.settings = this.readToolManagerSettings();
         this.initializeAvailableTools();
-        
+
         // If no configurations exist, automatically create a default one
         if (this.settings.configurations.length === 0) {
             console.log('[ToolManager] No configurations found, creating default configuration...');
             this.createConfiguration('Default Configuration', 'Automatically created default tool configuration');
+        } else {
+            // Migrate old configurations: if saved tool names don't match current tools,
+            // reset configurations to use the new consolidated tool names
+            this.migrateConfigurationsIfNeeded();
         }
+    }
+
+    private migrateConfigurationsIfNeeded(): void {
+        const currentToolNames = new Set(this.availableTools.map(t => t.name));
+
+        for (const config of this.settings.configurations) {
+            // Check if any saved tool name matches current tools
+            const matchCount = config.tools.filter(t => currentToolNames.has(t.name)).length;
+            const totalSaved = config.tools.length;
+
+            // If less than half of saved tools match, this is an old config that needs migration
+            if (totalSaved > 0 && matchCount < totalSaved * 0.5) {
+                console.log(`[ToolManager] Migrating config "${config.name}": ${matchCount}/${totalSaved} tools matched. Resetting to current tool set.`);
+                config.tools = this.availableTools.map(tool => ({ ...tool }));
+                config.updatedAt = new Date().toISOString();
+            }
+        }
+
+        this.saveSettings();
     }
 
     private getToolManagerSettingsPath(): string {
@@ -116,6 +139,7 @@ export class ToolManager {
             };
 
             // Get tool list from each tool class
+            // Tools now return their final consolidated names directly
             this.availableTools = [];
             for (const [category, toolSet] of Object.entries(tools)) {
                 const toolDefinitions = toolSet.getTools();
@@ -138,85 +162,70 @@ export class ToolManager {
     }
 
     private initializeDefaultTools(): void {
-        // Default tool list as fallback
+        // Default tool list as fallback (consolidated action-based tools)
         const toolCategories = [
-            { category: 'scene', name: 'Scene Tools', tools: [
-                { name: 'getCurrentSceneInfo', description: 'Get current scene info' },
-                { name: 'getSceneHierarchy', description: 'Get scene hierarchy' },
-                { name: 'createNewScene', description: 'Create new scene' },
-                { name: 'saveScene', description: 'Save scene' },
-                { name: 'loadScene', description: 'Load scene' }
+            { category: 'scene', tools: [
+                { name: 'scene_management', description: 'Manage scenes (get_current/get_list/open/save/save_as/create/close/get_hierarchy)' }
             ]},
-            { category: 'node', name: 'Node Tools', tools: [
-                { name: 'getAllNodes', description: 'Get all nodes' },
-                { name: 'findNodeByName', description: 'Find node by name' },
-                { name: 'createNode', description: 'Create node' },
-                { name: 'deleteNode', description: 'Delete node' },
-                { name: 'setNodeProperty', description: 'Set node property' },
-                { name: 'getNodeInfo', description: 'Get node info' }
+            { category: 'sceneAdvanced', tools: [
+                { name: 'scene_state', description: 'Query and manage scene state' },
+                { name: 'scene_undo', description: 'Undo recording management' },
+                { name: 'node_clipboard', description: 'Copy/paste/cut nodes' },
+                { name: 'node_advanced', description: 'Reset properties, array operations, restore prefab' },
+                { name: 'execute_method', description: 'Execute component or scene script methods' }
             ]},
-            { category: 'component', name: 'Component Tools', tools: [
-                { name: 'addComponentToNode', description: 'Add component to node' },
-                { name: 'removeComponentFromNode', description: 'Remove component from node' },
-                { name: 'setComponentProperty', description: 'Set component property' },
-                { name: 'getComponentInfo', description: 'Get component info' }
+            { category: 'sceneView', tools: [
+                { name: 'gizmo_tool', description: 'Gizmo tool, pivot, and coordinate management' },
+                { name: 'scene_view', description: 'Scene view settings (2D/3D, grid, icons)' },
+                { name: 'scene_camera', description: 'Camera focus and alignment' }
             ]},
-            { category: 'prefab', name: 'Prefab Tools', tools: [
-                { name: 'createPrefabFromNode', description: 'Create prefab from node' },
-                { name: 'instantiatePrefab', description: 'Instantiate prefab' },
-                { name: 'getPrefabInfo', description: 'Get prefab info' },
-                { name: 'savePrefab', description: 'Save prefab' }
+            { category: 'node', tools: [
+                { name: 'node_lifecycle', description: 'Create/delete/duplicate/move nodes' },
+                { name: 'node_query', description: 'Query and find nodes' },
+                { name: 'node_transform', description: 'Set node transform and properties' }
             ]},
-            { category: 'project', name: 'Project Tools', tools: [
-                { name: 'getProjectInfo', description: 'Get project info' },
-                { name: 'getAssetList', description: 'Get asset list' },
-                { name: 'createAsset', description: 'Create asset' },
-                { name: 'deleteAsset', description: 'Delete asset' }
+            { category: 'component', tools: [
+                { name: 'component_manage', description: 'Add/remove components and attach scripts' },
+                { name: 'component_query', description: 'Query component information' },
+                { name: 'set_component_property', description: 'Set component property values' }
             ]},
-            { category: 'debug', name: 'Debug Tools', tools: [
-                { name: 'getConsoleLogs', description: 'Get console logs' },
-                { name: 'getPerformanceStats', description: 'Get performance stats' },
-                { name: 'validateScene', description: 'Validate scene' },
-                { name: 'getErrorLogs', description: 'Get error logs' }
+            { category: 'prefab', tools: [
+                { name: 'prefab_lifecycle', description: 'Create/instantiate/update/duplicate prefabs' },
+                { name: 'prefab_query', description: 'Query prefab information' },
+                { name: 'prefab_instance', description: 'Revert/restore prefab instances' }
             ]},
-            { category: 'preferences', name: 'Preferences Tools', tools: [
-                { name: 'getPreferences', description: 'Get preferences' },
-                { name: 'setPreferences', description: 'Set preferences' },
-                { name: 'resetPreferences', description: 'Reset preferences' }
+            { category: 'project', tools: [
+                { name: 'asset_query', description: 'Query and find assets' },
+                { name: 'asset_crud', description: 'Create/copy/move/delete/save assets' },
+                { name: 'project_info', description: 'Get project info and settings' },
+                { name: 'project_build', description: 'Run/build project' },
+                { name: 'project_preview', description: 'Start/stop preview server' }
             ]},
-            { category: 'server', name: 'Server Tools', tools: [
-                { name: 'getServerStatus', description: 'Get server status' },
-                { name: 'getConnectedClients', description: 'Get connected clients' },
-                { name: 'getServerLogs', description: 'Get server logs' }
+            { category: 'assetAdvanced', tools: [
+                { name: 'asset_advanced', description: 'Advanced asset operations' },
+                { name: 'asset_batch', description: 'Batch asset operations' }
             ]},
-            { category: 'broadcast', name: 'Broadcast Tools', tools: [
-                { name: 'broadcastMessage', description: 'Broadcast message' },
-                { name: 'getBroadcastHistory', description: 'Get broadcast history' }
+            { category: 'debug', tools: [
+                { name: 'debug_console', description: 'Console logs and script execution' },
+                { name: 'debug_inspect', description: 'Node tree, performance, validation' },
+                { name: 'debug_logs', description: 'Project log file operations' }
             ]},
-            { category: 'sceneAdvanced', name: 'Advanced Scene Tools', tools: [
-                { name: 'optimizeScene', description: 'Optimize scene' },
-                { name: 'analyzeScene', description: 'Analyze scene' },
-                { name: 'batchOperation', description: 'Batch operation' }
+            { category: 'preferences', tools: [
+                { name: 'preferences_config', description: 'Preferences management' },
+                { name: 'preferences_io', description: 'Export/import preferences' }
             ]},
-            { category: 'sceneView', name: 'Scene View Tools', tools: [
-                { name: 'getViewportInfo', description: 'Get viewport info' },
-                { name: 'setViewportCamera', description: 'Set viewport camera' },
-                { name: 'focusOnNode', description: 'Focus on node' }
+            { category: 'server', tools: [
+                { name: 'server_info', description: 'Server status and network info' }
             ]},
-            { category: 'referenceImage', name: 'Reference Image Tools', tools: [
-                { name: 'addReferenceImage', description: 'Add reference image' },
-                { name: 'removeReferenceImage', description: 'Remove reference image' },
-                { name: 'getReferenceImages', description: 'Get reference image list' }
+            { category: 'broadcast', tools: [
+                { name: 'broadcast', description: 'Broadcast message management' }
             ]},
-            { category: 'assetAdvanced', name: 'Advanced Asset Tools', tools: [
-                { name: 'importAsset', description: 'Import asset' },
-                { name: 'exportAsset', description: 'Export asset' },
-                { name: 'processAsset', description: 'Process asset' }
+            { category: 'referenceImage', tools: [
+                { name: 'reference_image_manage', description: 'Add/remove/switch reference images' },
+                { name: 'reference_image_transform', description: 'Set reference image transform' }
             ]},
-            { category: 'validation', name: 'Validation Tools', tools: [
-                { name: 'validateProject', description: 'Validate project' },
-                { name: 'validateAssets', description: 'Validate assets' },
-                { name: 'generateReport', description: 'Generate report' }
+            { category: 'validation', tools: [
+                { name: 'validation', description: 'JSON validation and formatting utilities' }
             ]}
         ];
 
@@ -226,7 +235,7 @@ export class ToolManager {
                 this.availableTools.push({
                     category: category.category,
                     name: tool.name,
-                    enabled: true, // Enabled by default
+                    enabled: true,
                     description: tool.description
                 });
             });

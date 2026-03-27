@@ -102,42 +102,46 @@ export class MCPServer {
     private setupTools(): void {
         this.toolsList = [];
         this.toolExecutors.clear();
-        
-        // If no tool configuration is enabled, return all tools
-        if (!this.enabledTools || this.enabledTools.length === 0) {
-            for (const [category, toolSet] of Object.entries(this.tools)) {
-                const tools = toolSet.getTools();
-                for (const tool of tools) {
-                    const toolName = `${category}_${tool.name}`;
-                    this.toolsList.push({
-                        name: toolName,
-                        description: tool.description,
-                        inputSchema: tool.inputSchema
-                    });
-                    this.toolExecutors.set(toolName, (args: any) => toolSet.execute(tool.name, args));
-                }
-            }
-        } else {
-            // Filter based on enabled tool configuration
-            const enabledToolNames = new Set(this.enabledTools.map(tool => `${tool.category}_${tool.name}`));
-            
-            for (const [category, toolSet] of Object.entries(this.tools)) {
-                const tools = toolSet.getTools();
-                for (const tool of tools) {
-                    const toolName = `${category}_${tool.name}`;
-                    if (enabledToolNames.has(toolName)) {
-                        this.toolsList.push({
-                            name: toolName,
-                            description: tool.description,
-                            inputSchema: tool.inputSchema
-                        });
-                        this.toolExecutors.set(toolName, (args: any) => toolSet.execute(tool.name, args));
-                    }
-                }
+
+        // Build enabled tool set for filtering
+        const enabledToolNames = (this.enabledTools && this.enabledTools.length > 0)
+            ? new Set(this.enabledTools.map(tool => tool.name))
+            : null;
+
+        // Tools now return their final names directly (consolidated action-based tools)
+        // First pass: register all tools
+        const allTools: Array<{ tool: any; toolSet: any }> = [];
+        for (const [_category, toolSet] of Object.entries(this.tools)) {
+            const tools = toolSet.getTools();
+            for (const tool of tools) {
+                allTools.push({ tool, toolSet });
             }
         }
-        
-        console.log(`[MCPServer] Setup tools: ${this.toolsList.length} tools available`);
+
+        // Apply filter if active
+        const filteredTools = enabledToolNames
+            ? allTools.filter(({ tool }) => enabledToolNames.has(tool.name))
+            : allTools;
+
+        // If filter resulted in 0 tools (e.g., stale config with old names), fallback to all
+        const toolsToRegister = (enabledToolNames && filteredTools.length === 0)
+            ? allTools
+            : filteredTools;
+
+        for (const { tool, toolSet } of toolsToRegister) {
+            this.toolsList.push({
+                name: tool.name,
+                description: tool.description,
+                inputSchema: tool.inputSchema
+            });
+            this.toolExecutors.set(tool.name, (args: any) => toolSet.execute(tool.name, args));
+        }
+
+        if (enabledToolNames && filteredTools.length === 0) {
+            console.warn(`[MCPServer] Enabled tools filter matched 0 tools (stale config?). Falling back to all ${this.toolsList.length} tools.`);
+        } else {
+            console.log(`[MCPServer] Setup tools: ${this.toolsList.length} tools available`);
+        }
     }
 
     public getFilteredTools(enabledTools: any[]): ToolDefinition[] {
@@ -145,7 +149,7 @@ export class MCPServer {
             return this.toolsList; // If no filter config, return all tools
         }
 
-        const enabledToolNames = new Set(enabledTools.map(tool => `${tool.category}_${tool.name}`));
+        const enabledToolNames = new Set(enabledTools.map(tool => tool.name));
         return this.toolsList.filter(tool => enabledToolNames.has(tool.name));
     }
 
@@ -156,14 +160,14 @@ export class MCPServer {
             return await executor(normalizedArgs);
         }
 
-        const parts = toolName.split('_');
-        const category = parts[0];
-        const toolMethodName = parts.slice(1).join('_');
-        
-        if (this.tools[category]) {
-            return await this.tools[category].execute(toolMethodName, normalizedArgs);
+        // Fallback: try to find the tool in any executor
+        for (const [_category, toolSet] of Object.entries(this.tools)) {
+            const tools = toolSet.getTools();
+            if (tools.some((t: any) => t.name === toolName)) {
+                return await toolSet.execute(toolName, normalizedArgs);
+            }
         }
-        
+
         throw new Error(`Tool ${toolName} not found`);
     }
 
@@ -309,7 +313,20 @@ export class MCPServer {
                             'NEVER directly edit .scene, .prefab, .meta, or other Cocos Creator data files. These files have complex internal formats (UUIDs, references, indices) that break easily when edited manually, and direct edits will be out of sync with the running editor. ' +
                             'The ONLY files you should edit directly are TypeScript/JavaScript source code files (.ts, .js) such as game scripts and components. For everything else, use MCP tools. ' +
                             'When the user asks about Cocos Creator game development, always query the editor for real-time data (scene tree, node properties, asset lists) instead of guessing. ' +
-                            'Key tools: scene_management (open/save/list scenes), node_query (find nodes), node_lifecycle (create/delete nodes), node_transform (position/rotation/scale), component_manage (add/remove components), component_query (inspect components), set_component_property (modify properties), prefab_lifecycle (create prefabs), prefab_instance (instantiate prefabs), asset_query (find assets), project_manage (run/build project), debug_console (read logs).'
+                            'All tools use an "action" parameter to specify the operation. ' +
+                            'Key tools: scene_management (action: get_current/get_list/open/save/create/close/get_hierarchy), ' +
+                            'node_query (action: get_info/find_by_pattern/find_by_name/get_all/detect_type), ' +
+                            'node_lifecycle (action: create/delete/duplicate/move), ' +
+                            'node_transform (action: set_transform/set_property), ' +
+                            'component_manage (action: add/remove/attach_script), ' +
+                            'component_query (action: get_all/get_info/get_available), ' +
+                            'set_component_property (modify component properties), ' +
+                            'prefab_lifecycle (action: create/instantiate/update/duplicate), ' +
+                            'prefab_query (action: get_list/load/get_info/validate), ' +
+                            'asset_query (action: get_info/get_assets/find_by_name/get_details/query_path/query_uuid/query_url), ' +
+                            'asset_crud (action: create/copy/move/delete/save/reimport/import/refresh), ' +
+                            'project_build (action: run/build/get_build_settings/open_build_panel/check_builder_status), ' +
+                            'debug_console (action: get_logs/clear/execute_script).'
                     };
                     break;
                 default:
@@ -376,17 +393,21 @@ export class MCPServer {
         this.readRequestBody(req)
             .then(async (body) => {
             try {
-                // Extract tool name from path like /api/node/set_position
+                // Extract tool name from path like /api/tool/node_lifecycle or legacy /api/node/lifecycle
                 const pathParts = pathname.split('/').filter(p => p);
                 if (pathParts.length < 3) {
                     res.writeHead(400);
-                    res.end(JSON.stringify({ error: 'Invalid API path. Use /api/{category}/{tool_name}' }));
+                    res.end(JSON.stringify({ error: 'Invalid API path. Use /api/tool/{tool_name}' }));
                     return;
                 }
-                
-                const category = pathParts[1];
-                const toolName = pathParts[2];
-                const fullToolName = `${category}_${toolName}`;
+
+                // Support both /api/tool/{name} and legacy /api/{category}/{name}
+                let fullToolName: string;
+                if (pathParts[1] === 'tool') {
+                    fullToolName = pathParts[2];
+                } else {
+                    fullToolName = `${pathParts[1]}_${pathParts[2]}`;
+                }
                 
                 // Parse parameters with enhanced error handling
                 let params;
@@ -528,17 +549,16 @@ export class MCPServer {
 
     private getSimplifiedToolsList(): any[] {
         return this.toolsList.map(tool => {
+            // Extract category from tool name (first segment before _)
             const parts = tool.name.split('_');
             const category = parts[0];
-            const toolName = parts.slice(1).join('_');
-            
+
             return {
                 name: tool.name,
                 category: category,
-                toolName: toolName,
                 description: tool.description,
-                apiPath: `/api/${category}/${toolName}`,
-                curlExample: this.generateCurlExample(category, toolName, tool.inputSchema)
+                apiPath: `/api/tool/${tool.name}`,
+                curlExample: this.generateCurlExample(category, tool.name, tool.inputSchema)
             };
         });
     }

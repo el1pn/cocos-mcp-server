@@ -6,386 +6,182 @@ export class ProjectTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'run_project',
-                description: 'Run the project in preview mode',
+                name: 'asset_query',
+                description: 'Query and retrieve asset information. Actions: get_info (get asset info by path), get_assets (list assets by type), find_by_name (search assets by name), get_details (get detailed asset info with sub-assets), query_path (get disk path from URL), query_uuid (get UUID from URL), query_url (get URL from UUID).',
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        platform: {
+                        action: {
                             type: 'string',
-                            description: 'Target platform',
-                            enum: ['browser', 'simulator', 'preview'],
-                            default: 'browser'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'build_project',
-                description: 'Build the project',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        platform: {
-                            type: 'string',
-                            description: 'Build platform',
-                            enum: ['web-mobile', 'web-desktop', 'ios', 'android', 'windows', 'mac']
+                            description: 'The query action to perform',
+                            enum: ['get_info', 'get_assets', 'find_by_name', 'get_details', 'query_path', 'query_uuid', 'query_url']
                         },
-                        debug: {
-                            type: 'boolean',
-                            description: 'Debug build',
-                            default: true
-                        }
-                    },
-                    required: ['platform']
-                }
-            },
-            {
-                name: 'get_project_info',
-                description: 'Get project information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'get_project_settings',
-                description: 'Get project settings',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        category: {
-                            type: 'string',
-                            description: 'Settings category',
-                            enum: ['general', 'physics', 'render', 'assets'],
-                            default: 'general'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'refresh_assets',
-                description: 'Refresh asset database',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        folder: {
-                            type: 'string',
-                            description: 'Specific folder to refresh (optional)'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'import_asset',
-                description: 'Import an asset file',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        sourcePath: {
-                            type: 'string',
-                            description: 'Source file path'
-                        },
-                        targetFolder: {
-                            type: 'string',
-                            description: 'Target folder in assets'
-                        }
-                    },
-                    required: ['sourcePath', 'targetFolder']
-                }
-            },
-            {
-                name: 'get_asset_info',
-                description: 'Get asset information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
                         assetPath: {
                             type: 'string',
-                            description: 'Asset path (db://assets/...)'
-                        }
-                    },
-                    required: ['assetPath']
-                }
-            },
-            {
-                name: 'get_assets',
-                description: 'Get assets by type',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'Asset path, e.g. db://assets/... (used by: get_info, get_details)'
+                        },
                         type: {
                             type: 'string',
-                            description: 'Asset type filter',
+                            description: 'Asset type filter (used by: get_assets)',
                             enum: ['all', 'scene', 'prefab', 'script', 'texture', 'material', 'mesh', 'audio', 'animation'],
                             default: 'all'
                         },
                         folder: {
                             type: 'string',
-                            description: 'Folder to search in',
+                            description: 'Folder to search in (used by: get_assets, find_by_name)',
                             default: 'db://assets'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'get_build_settings',
-                description: 'Get build settings - shows current limitations',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'open_build_panel',
-                description: 'Open the build panel in the editor',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'check_builder_status',
-                description: 'Check if builder worker is ready',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'start_preview_server',
-                description: 'Start preview server',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        port: {
-                            type: 'number',
-                            description: 'Preview server port',
-                            default: 7456
-                        }
-                    }
-                }
-            },
-            {
-                name: 'stop_preview_server',
-                description: 'Stop preview server',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'create_asset',
-                description: 'Create a new asset file or folder',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL (e.g., db://assets/newfile.json)'
                         },
-                        content: {
-                            type: 'string',
-                            description: 'File content (null for folder)',
-                            default: null
-                        },
-                        overwrite: {
-                            type: 'boolean',
-                            description: 'Overwrite existing file',
-                            default: false
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'copy_asset',
-                description: 'Copy an asset to another location',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        source: {
-                            type: 'string',
-                            description: 'Source asset URL'
-                        },
-                        target: {
-                            type: 'string',
-                            description: 'Target location URL'
-                        },
-                        overwrite: {
-                            type: 'boolean',
-                            description: 'Overwrite existing file',
-                            default: false
-                        }
-                    },
-                    required: ['source', 'target']
-                }
-            },
-            {
-                name: 'move_asset',
-                description: 'Move an asset to another location',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        source: {
-                            type: 'string',
-                            description: 'Source asset URL'
-                        },
-                        target: {
-                            type: 'string',
-                            description: 'Target location URL'
-                        },
-                        overwrite: {
-                            type: 'boolean',
-                            description: 'Overwrite existing file',
-                            default: false
-                        }
-                    },
-                    required: ['source', 'target']
-                }
-            },
-            {
-                name: 'delete_asset',
-                description: 'Delete an asset',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL to delete'
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'save_asset',
-                description: 'Save asset content',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL'
-                        },
-                        content: {
-                            type: 'string',
-                            description: 'Asset content'
-                        }
-                    },
-                    required: ['url', 'content']
-                }
-            },
-            {
-                name: 'reimport_asset',
-                description: 'Reimport an asset',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL to reimport'
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'query_asset_path',
-                description: 'Get asset disk path',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL'
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'query_asset_uuid',
-                description: 'Get asset UUID from URL',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        url: {
-                            type: 'string',
-                            description: 'Asset URL'
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'query_asset_url',
-                description: 'Get asset URL from UUID',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        uuid: {
-                            type: 'string',
-                            description: 'Asset UUID'
-                        }
-                    },
-                    required: ['uuid']
-                }
-            },
-            {
-                name: 'find_asset_by_name',
-                description: 'Find assets by name (supports partial matching and multiple results)',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
                         name: {
                             type: 'string',
-                            description: 'Asset name to search for (supports partial matching)'
+                            description: 'Asset name to search for, supports partial matching (used by: find_by_name)'
                         },
                         exactMatch: {
                             type: 'boolean',
-                            description: 'Whether to use exact name matching',
+                            description: 'Whether to use exact name matching (used by: find_by_name)',
                             default: false
                         },
                         assetType: {
                             type: 'string',
-                            description: 'Filter by asset type',
+                            description: 'Filter by asset type (used by: find_by_name)',
                             enum: ['all', 'scene', 'prefab', 'script', 'texture', 'material', 'mesh', 'audio', 'animation', 'spriteFrame'],
                             default: 'all'
                         },
-                        folder: {
-                            type: 'string',
-                            description: 'Folder to search in',
-                            default: 'db://assets'
-                        },
                         maxResults: {
                             type: 'number',
-                            description: 'Maximum number of results to return',
+                            description: 'Maximum number of results to return (used by: find_by_name)',
                             default: 20,
                             minimum: 1,
                             maximum: 100
-                        }
-                    },
-                    required: ['name']
-                }
-            },
-            {
-                name: 'get_asset_details',
-                description: 'Get detailed asset information including spriteFrame sub-assets',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        assetPath: {
-                            type: 'string',
-                            description: 'Asset path (db://assets/...)'
                         },
                         includeSubAssets: {
                             type: 'boolean',
-                            description: 'Include sub-assets like spriteFrame, texture',
+                            description: 'Include sub-assets like spriteFrame, texture (used by: get_details)',
+                            default: true
+                        },
+                        url: {
+                            type: 'string',
+                            description: 'Asset URL (used by: query_path, query_uuid)'
+                        },
+                        uuid: {
+                            type: 'string',
+                            description: 'Asset UUID (used by: query_url)'
+                        }
+                    },
+                    required: ['action']
+                }
+            },
+            {
+                name: 'asset_crud',
+                description: 'Create, modify, and manage assets. Actions: create (create a new asset file or folder), copy (copy an asset), move (move an asset), delete (delete an asset), save (save asset content), reimport (reimport an asset), import (import an external file), refresh (refresh asset database).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The CRUD action to perform',
+                            enum: ['create', 'copy', 'move', 'delete', 'save', 'reimport', 'import', 'refresh']
+                        },
+                        url: {
+                            type: 'string',
+                            description: 'Asset URL (used by: create, delete, save, reimport)'
+                        },
+                        content: {
+                            type: 'string',
+                            description: 'File content (used by: create [null for folder], save)',
+                            default: null
+                        },
+                        overwrite: {
+                            type: 'boolean',
+                            description: 'Overwrite existing file (used by: create, copy, move)',
+                            default: false
+                        },
+                        source: {
+                            type: 'string',
+                            description: 'Source asset URL (used by: copy, move)'
+                        },
+                        target: {
+                            type: 'string',
+                            description: 'Target location URL (used by: copy, move)'
+                        },
+                        sourcePath: {
+                            type: 'string',
+                            description: 'Source file path on disk (used by: import)'
+                        },
+                        targetFolder: {
+                            type: 'string',
+                            description: 'Target folder in assets (used by: import)'
+                        },
+                        folder: {
+                            type: 'string',
+                            description: 'Specific folder to refresh (used by: refresh)'
+                        }
+                    },
+                    required: ['action']
+                }
+            },
+            {
+                name: 'project_info',
+                description: 'Get project information and settings. Actions: get_info (get project name, path, UUID, version), get_settings (get project settings by category).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The action to perform',
+                            enum: ['get_info', 'get_settings']
+                        },
+                        category: {
+                            type: 'string',
+                            description: 'Settings category (used by: get_settings)',
+                            enum: ['general', 'physics', 'render', 'assets'],
+                            default: 'general'
+                        }
+                    },
+                    required: ['action']
+                }
+            },
+            {
+                name: 'project_build',
+                description: 'Build and run the project. Actions: run (run project in preview mode), build (build the project for a platform), get_build_settings (get current build settings), open_build_panel (open the build panel), check_builder_status (check if builder worker is ready).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The build action to perform',
+                            enum: ['run', 'build', 'get_build_settings', 'open_build_panel', 'check_builder_status']
+                        },
+                        platform: {
+                            type: 'string',
+                            description: 'Target platform. For run: browser|simulator|preview (default: browser). For build: web-mobile|web-desktop|ios|android|windows|mac (used by: run, build)'
+                        },
+                        debug: {
+                            type: 'boolean',
+                            description: 'Debug build (used by: build)',
                             default: true
                         }
                     },
-                    required: ['assetPath']
+                    required: ['action']
+                }
+            },
+            {
+                name: 'project_preview',
+                description: 'Control the preview server. Actions: start_server (start preview server), stop_server (stop preview server).',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The preview action to perform',
+                            enum: ['start_server', 'stop_server']
+                        },
+                        port: {
+                            type: 'number',
+                            description: 'Preview server port (used by: start_server)',
+                            default: 7456
+                        }
+                    },
+                    required: ['action']
                 }
             }
         ];
@@ -393,56 +189,101 @@ export class ProjectTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'run_project':
-                return await this.runProject(args.platform);
-            case 'build_project':
-                return await this.buildProject(args);
-            case 'get_project_info':
-                return await this.getProjectInfo();
-            case 'get_project_settings':
-                return await this.getProjectSettings(args.category);
-            case 'refresh_assets':
-                return await this.refreshAssets(args.folder);
-            case 'import_asset':
-                return await this.importAsset(args.sourcePath, args.targetFolder);
-            case 'get_asset_info':
+            case 'asset_query':
+                return await this.executeAssetQuery(args);
+            case 'asset_crud':
+                return await this.executeAssetCrud(args);
+            case 'project_info':
+                return await this.executeProjectInfo(args);
+            case 'project_build':
+                return await this.executeProjectBuild(args);
+            case 'project_preview':
+                return await this.executeProjectPreview(args);
+            default:
+                throw new Error(`Unknown tool: ${toolName}`);
+        }
+    }
+
+    private async executeAssetQuery(args: any): Promise<ToolResponse> {
+        switch (args.action) {
+            case 'get_info':
                 return await this.getAssetInfo(args.assetPath);
             case 'get_assets':
                 return await this.getAssets(args.type, args.folder);
+            case 'find_by_name':
+                return await this.findAssetByName(args);
+            case 'get_details':
+                return await this.getAssetDetails(args.assetPath, args.includeSubAssets);
+            case 'query_path':
+                return await this.queryAssetPath(args.url);
+            case 'query_uuid':
+                return await this.queryAssetUuid(args.url);
+            case 'query_url':
+                return await this.queryAssetUrl(args.uuid);
+            default:
+                throw new Error(`Unknown asset_query action: ${args.action}`);
+        }
+    }
+
+    private async executeAssetCrud(args: any): Promise<ToolResponse> {
+        switch (args.action) {
+            case 'create':
+                return await this.createAsset(args.url, args.content, args.overwrite);
+            case 'copy':
+                return await this.copyAsset(args.source, args.target, args.overwrite);
+            case 'move':
+                return await this.moveAsset(args.source, args.target, args.overwrite);
+            case 'delete':
+                return await this.deleteAsset(args.url);
+            case 'save':
+                return await this.saveAsset(args.url, args.content);
+            case 'reimport':
+                return await this.reimportAsset(args.url);
+            case 'import':
+                return await this.importAsset(args.sourcePath, args.targetFolder);
+            case 'refresh':
+                return await this.refreshAssets(args.folder);
+            default:
+                throw new Error(`Unknown asset_crud action: ${args.action}`);
+        }
+    }
+
+    private async executeProjectInfo(args: any): Promise<ToolResponse> {
+        switch (args.action) {
+            case 'get_info':
+                return await this.getProjectInfo();
+            case 'get_settings':
+                return await this.getProjectSettings(args.category);
+            default:
+                throw new Error(`Unknown project_info action: ${args.action}`);
+        }
+    }
+
+    private async executeProjectBuild(args: any): Promise<ToolResponse> {
+        switch (args.action) {
+            case 'run':
+                return await this.runProject(args.platform);
+            case 'build':
+                return await this.buildProject(args);
             case 'get_build_settings':
                 return await this.getBuildSettings();
             case 'open_build_panel':
                 return await this.openBuildPanel();
             case 'check_builder_status':
                 return await this.checkBuilderStatus();
-            case 'start_preview_server':
-                return await this.startPreviewServer(args.port);
-            case 'stop_preview_server':
-                return await this.stopPreviewServer();
-            case 'create_asset':
-                return await this.createAsset(args.url, args.content, args.overwrite);
-            case 'copy_asset':
-                return await this.copyAsset(args.source, args.target, args.overwrite);
-            case 'move_asset':
-                return await this.moveAsset(args.source, args.target, args.overwrite);
-            case 'delete_asset':
-                return await this.deleteAsset(args.url);
-            case 'save_asset':
-                return await this.saveAsset(args.url, args.content);
-            case 'reimport_asset':
-                return await this.reimportAsset(args.url);
-            case 'query_asset_path':
-                return await this.queryAssetPath(args.url);
-            case 'query_asset_uuid':
-                return await this.queryAssetUuid(args.url);
-            case 'query_asset_url':
-                return await this.queryAssetUrl(args.uuid);
-            case 'find_asset_by_name':
-                return await this.findAssetByName(args);
-            case 'get_asset_details':
-                return await this.getAssetDetails(args.assetPath, args.includeSubAssets);
             default:
-                throw new Error(`Unknown tool: ${toolName}`);
+                throw new Error(`Unknown project_build action: ${args.action}`);
+        }
+    }
+
+    private async executeProjectPreview(args: any): Promise<ToolResponse> {
+        switch (args.action) {
+            case 'start_server':
+                return await this.startPreviewServer(args.port);
+            case 'stop_server':
+                return await this.stopPreviewServer();
+            default:
+                throw new Error(`Unknown project_preview action: ${args.action}`);
         }
     }
 
@@ -481,7 +322,7 @@ export class ProjectTools implements ToolExecutor {
                 resolve({
                     success: true,
                     message: `Build panel opened for ${args.platform}. Please configure and start build manually.`,
-                    data: { 
+                    data: {
                         platform: args.platform,
                         instruction: "Use the build panel to configure and start the build process"
                     }
@@ -546,7 +387,7 @@ export class ProjectTools implements ToolExecutor {
         return new Promise((resolve) => {
             // Use the correct asset-db API to refresh assets
             const targetPath = folder || 'db://assets';
-            
+
             Editor.Message.request('asset-db', 'refresh-asset', targetPath).then(() => {
                 resolve({
                     success: true,
@@ -617,7 +458,7 @@ export class ProjectTools implements ToolExecutor {
     private async getAssets(type: string = 'all', folder: string = 'db://assets'): Promise<ToolResponse> {
         return new Promise((resolve) => {
             let pattern = `${folder}/**/*`;
-            
+
             // Add type filter
             if (type !== 'all') {
                 const typeExtensions: Record<string, string> = {
@@ -630,7 +471,7 @@ export class ProjectTools implements ToolExecutor {
                     'audio': '.{mp3,ogg,wav,m4a}',
                     'animation': '.{anim,clip}'
                 };
-                
+
                 const extension = typeExtensions[type];
                 if (extension) {
                     pattern = `${folder}/**/*${extension}`;
@@ -647,9 +488,9 @@ export class ProjectTools implements ToolExecutor {
                     size: asset.size || 0,
                     isDirectory: asset.isDirectory || false
                 }));
-                
-                resolve({ 
-                    success: true, 
+
+                resolve({
+                    success: true,
                     data: {
                         type: type,
                         folder: folder,
@@ -959,7 +800,7 @@ export class ProjectTools implements ToolExecutor {
 
     private async findAssetByName(args: any): Promise<ToolResponse> {
         const { name, exactMatch = false, assetType = 'all', folder = 'db://assets', maxResults = 20 } = args;
-        
+
         return new Promise(async (resolve) => {
             try {
                 // Get all assets in the specified folder
@@ -971,21 +812,21 @@ export class ProjectTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 const allAssets = allAssetsResponse.data.assets as any[];
                 let matchedAssets: any[] = [];
-                
+
                 // Search for matching assets
                 for (const asset of allAssets) {
                     const assetName = asset.name;
                     let matches = false;
-                    
+
                     if (exactMatch) {
                         matches = assetName === name;
                     } else {
                         matches = assetName.toLowerCase().includes(name.toLowerCase());
                     }
-                    
+
                     if (matches) {
                         // Get detailed asset info if needed
                         try {
@@ -1001,13 +842,13 @@ export class ProjectTools implements ToolExecutor {
                         } catch {
                             matchedAssets.push(asset);
                         }
-                        
+
                         if (matchedAssets.length >= maxResults) {
                             break;
                         }
                     }
                 }
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -1021,7 +862,7 @@ export class ProjectTools implements ToolExecutor {
                         message: `Found ${matchedAssets.length} assets matching '${name}'`
                     }
                 });
-                
+
             } catch (error: any) {
                 resolve({
                     success: false,
@@ -1030,7 +871,7 @@ export class ProjectTools implements ToolExecutor {
             }
         });
     }
-    
+
     private async getAssetDetails(assetPath: string, includeSubAssets: boolean = true): Promise<ToolResponse> {
         return new Promise(async (resolve) => {
             try {
@@ -1040,13 +881,13 @@ export class ProjectTools implements ToolExecutor {
                     resolve(assetInfoResponse);
                     return;
                 }
-                
+
                 const assetInfo = assetInfoResponse.data;
                 const detailedInfo: any = {
                     ...assetInfo,
                     subAssets: []
                 };
-                
+
                 if (includeSubAssets && assetInfo) {
                     // For image assets, try to get spriteFrame and texture sub-assets
                     if (assetInfo.type === 'cc.ImageAsset' || assetPath.match(/\.(png|jpg|jpeg|gif|tga|bmp|psd)$/i)) {
@@ -1057,7 +898,7 @@ export class ProjectTools implements ToolExecutor {
                             { type: 'texture', uuid: `${baseUuid}@6c48a`, suffix: '@6c48a' },
                             { type: 'texture2D', uuid: `${baseUuid}@6c48a`, suffix: '@6c48a' }
                         ];
-                        
+
                         for (const subAsset of possibleSubAssets) {
                             try {
                                 // Try to get URL for the sub-asset to verify it exists
@@ -1076,7 +917,7 @@ export class ProjectTools implements ToolExecutor {
                         }
                     }
                 }
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -1086,7 +927,7 @@ export class ProjectTools implements ToolExecutor {
                         message: `Asset details retrieved. Found ${detailedInfo.subAssets.length} sub-assets.`
                     }
                 });
-                
+
             } catch (error: any) {
                 resolve({
                     success: false,

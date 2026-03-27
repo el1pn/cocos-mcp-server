@@ -4,53 +4,38 @@ export class ValidationTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'validate_json_params',
-                description: 'Validate and fix JSON parameters before sending to other tools',
+                name: 'validation',
+                description: 'Validate and format JSON/MCP data. Actions: validate_json (validate and fix JSON parameters), safe_string (create a safe string value for JSON), format_request (format a complete MCP request with proper JSON escaping)',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'Action to perform',
+                            enum: ['validate_json', 'safe_string', 'format_request']
+                        },
                         jsonString: {
                             type: 'string',
-                            description: 'JSON string to validate and fix'
+                            description: 'JSON string to validate and fix (action: validate_json)'
                         },
                         expectedSchema: {
                             type: 'object',
-                            description: 'Expected parameter schema (optional)'
-                        }
-                    },
-                    required: ['jsonString']
-                }
-            },
-            {
-                name: 'safe_string_value',
-                description: 'Create a safe string value that won\'t cause JSON parsing issues',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'Expected parameter schema (action: validate_json, optional)'
+                        },
                         value: {
                             type: 'string',
-                            description: 'String value to make safe'
-                        }
-                    },
-                    required: ['value']
-                }
-            },
-            {
-                name: 'format_mcp_request',
-                description: 'Format a complete MCP request with proper JSON escaping',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'String value to make safe (action: safe_string)'
+                        },
                         toolName: {
                             type: 'string',
-                            description: 'Tool name to call'
+                            description: 'Tool name to call (action: format_request)'
                         },
                         arguments: {
                             type: 'object',
-                            description: 'Tool arguments'
+                            description: 'Tool arguments (action: format_request)'
                         }
                     },
-                    required: ['toolName', 'arguments']
+                    required: ['action']
                 }
             }
         ];
@@ -58,12 +43,17 @@ export class ValidationTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'validate_json_params':
-                return await this.validateJsonParams(args.jsonString, args.expectedSchema);
-            case 'safe_string_value':
-                return await this.createSafeStringValue(args.value);
-            case 'format_mcp_request':
-                return await this.formatMcpRequest(args.toolName, args.arguments);
+            case 'validation':
+                switch (args.action) {
+                    case 'validate_json':
+                        return await this.validateJsonParams(args.jsonString, args.expectedSchema);
+                    case 'safe_string':
+                        return await this.createSafeStringValue(args.value);
+                    case 'format_request':
+                        return await this.formatMcpRequest(args.toolName, args.arguments);
+                    default:
+                        throw new Error(`Unknown action: ${args.action}`);
+                }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -172,7 +162,7 @@ export class ValidationTools implements ToolExecutor {
 
     private fixJsonString(jsonStr: string): string {
         let fixed = jsonStr;
-        
+
         // Fix common escape character issues
         fixed = fixed
             // Fix unescaped quotes in string values
@@ -190,7 +180,7 @@ export class ValidationTools implements ToolExecutor {
             .replace(/\t/g, '\\t')
             // Fix single quotes to double quotes
             .replace(/'/g, '"');
-        
+
         return fixed;
     }
 
@@ -237,7 +227,7 @@ export class ValidationTools implements ToolExecutor {
 
     private getJsonFixSuggestions(jsonStr: string): string[] {
         const suggestions: string[] = [];
-        
+
         if (jsonStr.includes('\\"')) {
             suggestions.push('Check for improperly escaped quotes');
         }
@@ -250,7 +240,7 @@ export class ValidationTools implements ToolExecutor {
         if (jsonStr.match(/,\s*[}\]]/)) {
             suggestions.push('Remove trailing commas');
         }
-        
+
         return suggestions;
     }
 

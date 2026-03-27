@@ -4,71 +4,59 @@ export class ComponentTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'add_component',
-                description: 'Add a component to a specific node. IMPORTANT: You must provide the nodeUuid parameter to specify which node to add the component to.',
+                name: 'component_manage',
+                description: 'Manage components on nodes: add, remove, or attach scripts. Available actions: add, remove, attach_script.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The action to perform',
+                            enum: ['add', 'remove', 'attach_script']
+                        },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Target node UUID. REQUIRED: You must specify the exact node to add the component to. Use get_all_nodes or find_node_by_name to get the UUID of the desired node.'
+                            description: 'Target node UUID. REQUIRED for all actions. Use get_all_nodes or find_node_by_name to get the UUID of the desired node.'
                         },
                         componentType: {
                             type: 'string',
-                            description: 'Component type (e.g., cc.Sprite, cc.Label, cc.Button)'
+                            description: 'Component type (used by "add" and "remove" actions). For "add": e.g., cc.Sprite, cc.Label, cc.Button. For "remove": must be the component\'s classId (cid, i.e. the type field from get_all), not the script name or class name. Use get_all to get the correct cid.'
+                        },
+                        scriptPath: {
+                            type: 'string',
+                            description: 'Script asset path (used by "attach_script" action). e.g., db://assets/scripts/MyScript.ts'
                         }
                     },
-                    required: ['nodeUuid', 'componentType']
+                    required: ['action', 'nodeUuid']
                 }
             },
             {
-                name: 'remove_component',
-                description: 'Remove a component from a node. componentType must be the component\'s classId (cid, i.e. the type field from getComponents), not the script name or class name. Use getComponents to get the correct cid.',
+                name: 'component_query',
+                description: 'Query component information: get all components on a node, get specific component info, or list available component types. Available actions: get_all, get_info, get_available.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The action to perform',
+                            enum: ['get_all', 'get_info', 'get_available']
+                        },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Node UUID'
+                            description: 'Node UUID (required for "get_all" and "get_info" actions)'
                         },
                         componentType: {
                             type: 'string',
-                            description: 'Component cid (type field from getComponents). Do NOT use script name or class name. Example: "cc.Sprite" or "9b4a7ueT9xD6aRE+AlOusy1"'
-                        }
-                    },
-                    required: ['nodeUuid', 'componentType']
-                }
-            },
-            {
-                name: 'get_components',
-                description: 'Get all components of a node',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Node UUID'
-                        }
-                    },
-                    required: ['nodeUuid']
-                }
-            },
-            {
-                name: 'get_component_info',
-                description: 'Get specific component information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Node UUID'
+                            description: 'Component type to get info for (required for "get_info" action)'
                         },
-                        componentType: {
+                        category: {
                             type: 'string',
-                            description: 'Component type to get info for'
+                            description: 'Component category filter (used by "get_available" action)',
+                            enum: ['all', 'renderer', 'ui', 'physics', 'animation', 'audio'],
+                            default: 'all'
                         }
                     },
-                    required: ['nodeUuid', 'componentType']
+                    required: ['action']
                 }
             },
             {
@@ -145,59 +133,40 @@ export class ComponentTools implements ToolExecutor {
                     },
                     required: ['nodeUuid', 'componentType', 'property', 'propertyType', 'value']
                 }
-            },
-            {
-                name: 'attach_script',
-                description: 'Attach a script component to a node',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Node UUID'
-                        },
-                        scriptPath: {
-                            type: 'string',
-                            description: 'Script asset path (e.g., db://assets/scripts/MyScript.ts)'
-                        }
-                    },
-                    required: ['nodeUuid', 'scriptPath']
-                }
-            },
-            {
-                name: 'get_available_components',
-                description: 'Get list of available component types',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        category: {
-                            type: 'string',
-                            description: 'Component category filter',
-                            enum: ['all', 'renderer', 'ui', 'physics', 'animation', 'audio'],
-                            default: 'all'
-                        }
-                    }
-                }
             }
         ];
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'add_component':
-                return await this.addComponent(args.nodeUuid, args.componentType);
-            case 'remove_component':
-                return await this.removeComponent(args.nodeUuid, args.componentType);
-            case 'get_components':
-                return await this.getComponents(args.nodeUuid);
-            case 'get_component_info':
-                return await this.getComponentInfo(args.nodeUuid, args.componentType);
+            case 'component_manage': {
+                const action = args.action;
+                switch (action) {
+                    case 'add':
+                        return await this.addComponent(args.nodeUuid, args.componentType);
+                    case 'remove':
+                        return await this.removeComponent(args.nodeUuid, args.componentType);
+                    case 'attach_script':
+                        return await this.attachScript(args.nodeUuid, args.scriptPath);
+                    default:
+                        throw new Error(`Unknown action '${action}' for component_manage. Valid actions: add, remove, attach_script`);
+                }
+            }
+            case 'component_query': {
+                const action = args.action;
+                switch (action) {
+                    case 'get_all':
+                        return await this.getComponents(args.nodeUuid);
+                    case 'get_info':
+                        return await this.getComponentInfo(args.nodeUuid, args.componentType);
+                    case 'get_available':
+                        return await this.getAvailableComponents(args.category);
+                    default:
+                        throw new Error(`Unknown action '${action}' for component_query. Valid actions: get_all, get_info, get_available`);
+                }
+            }
             case 'set_component_property':
                 return await this.setComponentProperty(args);
-            case 'attach_script':
-                return await this.attachScript(args.nodeUuid, args.scriptPath);
-            case 'get_available_components':
-                return await this.getAvailableComponents(args.category);
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -329,7 +298,7 @@ export class ComponentTools implements ToolExecutor {
                         enabled: comp.enabled !== undefined ? comp.enabled : true,
                         properties: this.extractComponentProperties(comp)
                     }));
-                    
+
                     resolve({
                         success: true,
                         data: {
@@ -347,7 +316,7 @@ export class ComponentTools implements ToolExecutor {
                     method: 'getNodeInfo',
                     args: [nodeUuid]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     if (result.success) {
                         resolve({
@@ -373,7 +342,7 @@ export class ComponentTools implements ToolExecutor {
                         const compType = comp.__type__ || comp.cid || comp.type;
                         return compType === componentType;
                     });
-                    
+
                     if (component) {
                         resolve({
                             success: true,
@@ -397,7 +366,7 @@ export class ComponentTools implements ToolExecutor {
                     method: 'getNodeInfo',
                     args: [nodeUuid]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     if (result.success && result.data.components) {
                         const component = result.data.components.find((comp: any) => comp.type === componentType);
@@ -425,24 +394,24 @@ export class ComponentTools implements ToolExecutor {
 
     private extractComponentProperties(component: any): Record<string, any> {
         console.log(`[extractComponentProperties] Processing component:`, Object.keys(component));
-        
+
         // Check if component has value property, which usually contains the actual component properties
         if (component.value && typeof component.value === 'object') {
             console.log(`[extractComponentProperties] Found component.value with properties:`, Object.keys(component.value));
             return component.value; // Return value object directly, it contains all component properties
         }
-        
+
         // Fallback: extract properties directly from component object
         const properties: Record<string, any> = {};
         const excludeKeys = ['__type__', 'enabled', 'node', '_id', '__scriptAsset', 'uuid', 'name', '_name', '_objFlags', '_enabled', 'type', 'readonly', 'visible', 'cid', 'editor', 'extends'];
-        
+
         for (const key in component) {
             if (!excludeKeys.includes(key) && !key.startsWith('_')) {
                 console.log(`[extractComponentProperties] Found direct property '${key}':`, typeof component[key]);
                 properties[key] = component[key];
             }
         }
-        
+
         console.log(`[extractComponentProperties] Final extracted properties:`, Object.keys(properties));
         return properties;
     }
@@ -460,7 +429,7 @@ export class ComponentTools implements ToolExecutor {
             }
 
             const queue: any[] = [nodeTree];
-            
+
             while (queue.length > 0) {
                 const currentNodeInfo = queue.shift();
                 if (!currentNodeInfo || !currentNodeInfo.uuid) {
@@ -501,18 +470,18 @@ export class ComponentTools implements ToolExecutor {
 
     private async setComponentProperty(args: any): Promise<ToolResponse> {
                         const { nodeUuid, componentType, property, propertyType, value } = args;
-        
+
         return new Promise(async (resolve) => {
             try {
                 console.log(`[ComponentTools] Setting ${componentType}.${property} (type: ${propertyType}) = ${JSON.stringify(value)} on node ${nodeUuid}`);
-                
+
                 // Step 0: Detect if this is a node property, redirect to corresponding node method if so
                 const nodeRedirectResult = await this.checkAndRedirectNodeProperties(args);
                 if (nodeRedirectResult) {
                     resolve(nodeRedirectResult);
                     return;
                 }
-                
+
                 // Step 1: Get component info using the same method as getComponents
                 const componentsResponse = await this.getComponents(nodeUuid);
                 if (!componentsResponse.success || !componentsResponse.data) {
@@ -523,23 +492,23 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 const allComponents = componentsResponse.data.components;
-                
+
                 // Step 2: Find target component
                 let targetComponent = null;
                 const availableTypes: string[] = [];
-                
+
                 for (let i = 0; i < allComponents.length; i++) {
                     const comp = allComponents[i];
                     availableTypes.push(comp.type);
-                    
+
                     if (comp.type === componentType) {
                         targetComponent = comp;
                         break;
                     }
                 }
-                
+
                 if (!targetComponent) {
                     // Provide more detailed error info and suggestions
                     const instruction = this.generateComponentSuggestion(componentType, availableTypes, property);
@@ -550,7 +519,7 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 // Step 3: Auto-detect and convert property values
                 let propertyInfo;
                 try {
@@ -564,7 +533,7 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 if (!propertyInfo.exists) {
                     resolve({
                         success: false,
@@ -572,11 +541,11 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 // Step 4: Process property values and apply settings
                 const originalValue = propertyInfo.originalValue;
                 let processedValue: any;
-                
+
                 // Process property values based on explicit propertyType
                 switch (propertyType) {
                     case 'string':
@@ -709,14 +678,14 @@ export class ComponentTools implements ToolExecutor {
                     default:
                         throw new Error(`Unsupported property type: ${propertyType}`);
                 }
-                
+
                 console.log(`[ComponentTools] Converting value: ${JSON.stringify(value)} -> ${JSON.stringify(processedValue)} (type: ${propertyType})`);
                 console.log(`[ComponentTools] Property analysis result: propertyInfo.type="${propertyInfo.type}", propertyType="${propertyType}"`);
                 console.log(`[ComponentTools] Will use color special handling: ${propertyType === 'color' && processedValue && typeof processedValue === 'object'}`);
-                
+
                 // Actual expected value for verification (needs special handling for component references)
                 let actualExpectedValue = processedValue;
-                
+
                 // Step 5: Get original node data to build correct path
                 const rawNodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
                 if (!rawNodeData || !rawNodeData.__comps__) {
@@ -726,7 +695,7 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 // Find original component index
                 let rawComponentIndex = -1;
                 for (let i = 0; i < rawNodeData.__comps__.length; i++) {
@@ -737,7 +706,7 @@ export class ComponentTools implements ToolExecutor {
                         break;
                     }
                 }
-                
+
                 if (rawComponentIndex === -1) {
                     resolve({
                         success: false,
@@ -745,21 +714,21 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 // Build correct property path
                 let propertyPath = `__comps__.${rawComponentIndex}.${property}`;
-                
+
                 // Special handling for asset-type properties
-                if (propertyType === 'asset' || propertyType === 'spriteFrame' || propertyType === 'prefab' || 
+                if (propertyType === 'asset' || propertyType === 'spriteFrame' || propertyType === 'prefab' ||
                     (propertyInfo.type === 'asset' && propertyType === 'string')) {
-                    
+
                     console.log(`[ComponentTools] Setting asset reference:`, {
                         value: processedValue,
                         property: property,
                         propertyType: propertyType,
                         path: propertyPath
                     });
-                    
+
                     // Determine asset type based on property name
                     let assetType = 'cc.SpriteFrame'; // default
                     if (property.toLowerCase().includes('texture')) {
@@ -773,11 +742,11 @@ export class ComponentTools implements ToolExecutor {
                     } else if (propertyType === 'prefab') {
                         assetType = 'cc.Prefab';
                     }
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: processedValue,
                             type: assetType
                         }
@@ -786,14 +755,14 @@ export class ComponentTools implements ToolExecutor {
                     // Special handling for UITransform contentSize - set width and height separately
                     const width = Number(value.width) || 100;
                     const height = Number(value.height) || 100;
-                    
+
                     // Set width first
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.width`,
                         dump: { value: width }
                     });
-                    
+
                     // Then set height
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
@@ -804,15 +773,15 @@ export class ComponentTools implements ToolExecutor {
                     // Special handling for UITransform anchorPoint - set anchorX and anchorY separately
                     const anchorX = Number(value.x) || 0.5;
                     const anchorY = Number(value.y) || 0.5;
-                    
+
                     // Set anchorX first
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.anchorX`,
                         dump: { value: anchorX }
                     });
-                    
-                    // Then set anchorY  
+
+                    // Then set anchorY
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.anchorY`,
@@ -827,13 +796,13 @@ export class ComponentTools implements ToolExecutor {
                         b: Math.min(255, Math.max(0, Number(processedValue.b) || 0)),
                         a: processedValue.a !== undefined ? Math.min(255, Math.max(0, Number(processedValue.a))) : 255
                     };
-                    
+
                     console.log(`[ComponentTools] Setting color value:`, colorValue);
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: colorValue,
                             type: 'cc.Color'
                         }
@@ -845,11 +814,11 @@ export class ComponentTools implements ToolExecutor {
                         y: Number(processedValue.y) || 0,
                         z: Number(processedValue.z) || 0
                     };
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: vec3Value,
                             type: 'cc.Vec3'
                         }
@@ -860,11 +829,11 @@ export class ComponentTools implements ToolExecutor {
                         x: Number(processedValue.x) || 0,
                         y: Number(processedValue.y) || 0
                     };
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: vec2Value,
                             type: 'cc.Vec2'
                         }
@@ -875,11 +844,11 @@ export class ComponentTools implements ToolExecutor {
                         width: Number(processedValue.width) || 0,
                         height: Number(processedValue.height) || 0
                     };
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: sizeValue,
                             type: 'cc.Size'
                         }
@@ -890,7 +859,7 @@ export class ComponentTools implements ToolExecutor {
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: processedValue,
                             type: 'cc.Node'
                         }
@@ -899,15 +868,15 @@ export class ComponentTools implements ToolExecutor {
                     // Special handling for component references: find component __id__ via node UUID
                     const targetNodeUuid = processedValue;
                     console.log(`[ComponentTools] Setting component reference - finding component on node: ${targetNodeUuid}`);
-                    
+
                     // Get expected component type from current component property metadata
                     let expectedComponentType = '';
-                    
+
                     // Get current component details including property metadata
                     const currentComponentInfo = await this.getComponentInfo(nodeUuid, componentType);
                     if (currentComponentInfo.success && currentComponentInfo.data?.properties?.[property]) {
                         const propertyMeta = currentComponentInfo.data.properties[property];
-                        
+
                         // Extract component type info from property metadata
                         if (propertyMeta && typeof propertyMeta === 'object') {
                             // Check if there is a type field indicating component type
@@ -927,43 +896,43 @@ export class ComponentTools implements ToolExecutor {
                             }
                         }
                     }
-                    
+
                     if (!expectedComponentType) {
                         throw new Error(`Unable to determine required component type for property '${property}' on component '${componentType}'. Property metadata may not contain type information.`);
                     }
-                    
+
                     console.log(`[ComponentTools] Detected required component type: ${expectedComponentType} for property: ${property}`);
-                    
+
                     try {
                         // Get target node component info
                         const targetNodeData = await Editor.Message.request('scene', 'query-node', targetNodeUuid);
                         if (!targetNodeData || !targetNodeData.__comps__) {
                             throw new Error(`Target node ${targetNodeUuid} not found or has no components`);
                         }
-                        
+
                         // Print target node component overview
                         console.log(`[ComponentTools] Target node ${targetNodeUuid} has ${targetNodeData.__comps__.length} components:`);
                         targetNodeData.__comps__.forEach((comp: any, index: number) => {
                             const sceneId = comp.value && comp.value.uuid && comp.value.uuid.value ? comp.value.uuid.value : 'unknown';
                             console.log(`[ComponentTools] Component ${index}: ${comp.type} (scene_id: ${sceneId})`);
                         });
-                        
+
                         // Find corresponding component
                         let targetComponent = null;
                         let componentId: string | null = null;
-                        
+
                         // Find specified type of component in target node _components array
                         // Note: __comps__ and _components indices correspond to each other
                         console.log(`[ComponentTools] Searching for component type: ${expectedComponentType}`);
-                        
+
                         for (let i = 0; i < targetNodeData.__comps__.length; i++) {
                             const comp = targetNodeData.__comps__[i] as any;
                             console.log(`[ComponentTools] Checking component ${i}: type=${comp.type}, target=${expectedComponentType}`);
-                            
+
                             if (comp.type === expectedComponentType) {
                                 targetComponent = comp;
                                 console.log(`[ComponentTools] Found matching component at index ${i}: ${comp.type}`);
-                                
+
                                 // Get component scene ID from component value.uuid.value
                                 if (comp.value && comp.value.uuid && comp.value.uuid.value) {
                                     componentId = comp.value.uuid.value;
@@ -977,11 +946,11 @@ export class ComponentTools implements ToolExecutor {
                                     });
                                     throw new Error(`Unable to extract component ID from component structure`);
                                 }
-                                
+
                                 break;
                             }
                         }
-                        
+
                         if (!targetComponent) {
                             // If not found, list available components for user reference, showing real scene IDs
                             const availableComponents = targetNodeData.__comps__.map((comp: any, index: number) => {
@@ -994,25 +963,25 @@ export class ComponentTools implements ToolExecutor {
                             });
                             throw new Error(`Component type '${expectedComponentType}' not found on node ${targetNodeUuid}. Available components: ${availableComponents.join(', ')}`);
                         }
-                        
+
                         console.log(`[ComponentTools] Found component ${expectedComponentType} with scene ID: ${componentId} on node ${targetNodeUuid}`);
-                        
+
                         // Update expected value to actual component ID object format for subsequent verification
                         if (componentId) {
                             actualExpectedValue = { uuid: componentId };
                         }
-                        
+
                         // Try using same format as node/asset references: {uuid: componentId}
                         // Test to see if component reference can be set correctly
                         await Editor.Message.request('scene', 'set-property', {
                             uuid: nodeUuid,
                             path: propertyPath,
-                            dump: { 
+                            dump: {
                                 value: { uuid: componentId },  // Use object format, like node/asset references
                                 type: expectedComponentType
                             }
                         });
-                        
+
                     } catch (error) {
                         console.error(`[ComponentTools] Error setting component reference:`, error);
                         throw error;
@@ -1020,11 +989,11 @@ export class ComponentTools implements ToolExecutor {
                 } else if (propertyType === 'nodeArray' && Array.isArray(processedValue)) {
                     // Special handling for node arrays - keep preprocessed format
                     console.log(`[ComponentTools] Setting node array:`, processedValue);
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: processedValue  // Keep [{uuid: "..."}, {uuid: "..."}] format
                         }
                     });
@@ -1042,11 +1011,11 @@ export class ComponentTools implements ToolExecutor {
                             return { r: 255, g: 255, b: 255, a: 255 };
                         }
                     });
-                    
+
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
-                        dump: { 
+                        dump: {
                             value: colorArrayValue,
                             type: 'cc.Color'
                         }
@@ -1059,12 +1028,12 @@ export class ComponentTools implements ToolExecutor {
                         dump: { value: processedValue }
                     });
                 }
-                
+
                 // Step 5: Wait for Editor to complete update, then verify result
                 await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms for Editor to complete update
-                
+
                 const verification = await this.verifyPropertyChange(nodeUuid, componentType, property, originalValue, actualExpectedValue);
-                
+
                 resolve({
                     success: true,
                     message: `Successfully set ${componentType}.${property}`,
@@ -1076,7 +1045,7 @@ export class ComponentTools implements ToolExecutor {
                         changeVerified: verification.verified
                     }
                 });
-                
+
             } catch (error: any) {
                 console.error(`[ComponentTools] Error setting property:`, error);
                 resolve({
@@ -1156,8 +1125,8 @@ export class ComponentTools implements ToolExecutor {
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch(() => {
-                    resolve({ 
-                        success: false, 
+                    resolve({
+                        success: false,
                         error: `Failed to attach script '${scriptName}': ${err.message}`,
                         instruction: 'Please ensure the script is properly compiled and exported as a Component class. You can also manually attach the script through the Properties panel in the editor.'
                     });
@@ -1180,7 +1149,7 @@ export class ComponentTools implements ToolExecutor {
         };
 
         let components: string[] = [];
-        
+
         if (category === 'all') {
             for (const cat in componentCategories) {
                 components = components.concat(componentCategories[cat]);
@@ -1203,30 +1172,30 @@ export class ComponentTools implements ToolExecutor {
         if (typeof propData !== 'object' || propData === null) {
             return false;
         }
-        
+
         try {
             const keys = Object.keys(propData);
-            
+
             // Avoid traversing simple numeric objects (e.g., {width: 200, height: 150})
             const isSimpleValueObject = keys.every(key => {
                 const value = propData[key];
                 return typeof value === 'number' || typeof value === 'string' || typeof value === 'boolean';
             });
-            
+
             if (isSimpleValueObject) {
                 return false;
             }
-            
+
             // Check for property descriptor characteristic fields without using 'in' operator
             const hasName = keys.includes('name');
             const hasValue = keys.includes('value');
             const hasType = keys.includes('type');
             const hasDisplayName = keys.includes('displayName');
             const hasReadonly = keys.includes('readonly');
-            
+
             // Must contain name or value field, and usually also a type field
             const hasValidStructure = (hasName || hasValue) && (hasType || hasDisplayName || hasReadonly);
-            
+
             // Extra check: if default field exists with complex structure, avoid deep traversal
             if (keys.includes('default') && propData.default && typeof propData.default === 'object') {
                 const defaultKeys = Object.keys(propData.default);
@@ -1235,7 +1204,7 @@ export class ComponentTools implements ToolExecutor {
                     return hasValidStructure;
                 }
             }
-            
+
             return hasValidStructure;
         } catch (error) {
             console.warn(`[isValidPropertyDescriptor] Error checking property descriptor:`, error);
@@ -1248,14 +1217,14 @@ export class ComponentTools implements ToolExecutor {
         const availableProperties: string[] = [];
         let propertyValue: any = undefined;
         let propertyExists = false;
-        
+
         // Try multiple ways to find properties:
         // 1. Direct property access
         if (Object.prototype.hasOwnProperty.call(component, propertyName)) {
             propertyValue = component[propertyName];
             propertyExists = true;
         }
-        
+
         // 2. Find from nested structure (like complex structures seen in test data)
         if (!propertyExists && component.properties && typeof component.properties === 'object') {
             // First check if properties.value exists (this is the structure we see in getComponents)
@@ -1301,7 +1270,7 @@ export class ComponentTools implements ToolExecutor {
                 }
             }
         }
-        
+
         // 3. Extract simple property names from direct properties
         if (availableProperties.length === 0) {
             for (const key of Object.keys(component)) {
@@ -1310,7 +1279,7 @@ export class ComponentTools implements ToolExecutor {
                 }
             }
         }
-        
+
         if (!propertyExists) {
             return {
                 exists: false,
@@ -1319,9 +1288,9 @@ export class ComponentTools implements ToolExecutor {
                 originalValue: undefined
             };
         }
-        
+
         let type = 'unknown';
-        
+
         // Smart type detection
         if (Array.isArray(propertyValue)) {
             // Array type detection
@@ -1354,7 +1323,7 @@ export class ComponentTools implements ToolExecutor {
                     type = 'size';
                 } else if (keys.includes('uuid') || keys.includes('__uuid__')) {
                     // Check if it is a node reference (by property name or __id__ property)
-                    if (propertyName.toLowerCase().includes('node') || 
+                    if (propertyName.toLowerCase().includes('node') ||
                         propertyName.toLowerCase().includes('target') ||
                         keys.includes('__id__')) {
                         type = 'node';
@@ -1375,7 +1344,7 @@ export class ComponentTools implements ToolExecutor {
             // For null/undefined values, check property name to determine type
             if (['spriteFrame', 'texture', 'material', 'font', 'clip', 'prefab'].includes(propertyName.toLowerCase())) {
                 type = 'asset';
-            } else if (propertyName.toLowerCase().includes('node') || 
+            } else if (propertyName.toLowerCase().includes('node') ||
                       propertyName.toLowerCase().includes('target')) {
                 type = 'node';
             } else if (propertyName.toLowerCase().includes('component')) {
@@ -1384,7 +1353,7 @@ export class ComponentTools implements ToolExecutor {
                 type = 'unknown';
             }
         }
-        
+
         return {
             exists: true,
             type,
@@ -1395,23 +1364,23 @@ export class ComponentTools implements ToolExecutor {
 
     private smartConvertValue(inputValue: any, propertyInfo: any): any {
         const { type, originalValue } = propertyInfo;
-        
+
         console.log(`[smartConvertValue] Converting ${JSON.stringify(inputValue)} to type: ${type}`);
-        
+
         switch (type) {
             case 'string':
                 return String(inputValue);
-                
+
             case 'number':
                 return Number(inputValue);
-                
+
             case 'boolean':
                 if (typeof inputValue === 'boolean') return inputValue;
                 if (typeof inputValue === 'string') {
                     return inputValue.toLowerCase() === 'true' || inputValue === '1';
                 }
                 return Boolean(inputValue);
-                
+
             case 'color':
                 // Optimized color handling, supporting multiple input formats
                 if (typeof inputValue === 'string') {
@@ -1450,7 +1419,7 @@ export class ComponentTools implements ToolExecutor {
                 // Default return white
                 console.warn(`[smartConvertValue] Using default white color for invalid input: ${JSON.stringify(inputValue)}`);
                 return { r: 255, g: 255, b: 255, a: 255 };
-                
+
             case 'vec2':
                 if (typeof inputValue === 'object' && inputValue !== null) {
                     return {
@@ -1459,7 +1428,7 @@ export class ComponentTools implements ToolExecutor {
                     };
                 }
                 return originalValue;
-                
+
             case 'vec3':
                 if (typeof inputValue === 'object' && inputValue !== null) {
                     return {
@@ -1469,7 +1438,7 @@ export class ComponentTools implements ToolExecutor {
                     };
                 }
                 return originalValue;
-                
+
             case 'size':
                 if (typeof inputValue === 'object' && inputValue !== null) {
                     return {
@@ -1478,7 +1447,7 @@ export class ComponentTools implements ToolExecutor {
                     };
                 }
                 return originalValue;
-                
+
             case 'node':
                 if (typeof inputValue === 'string') {
                     // Node references need special handling
@@ -1488,7 +1457,7 @@ export class ComponentTools implements ToolExecutor {
                     return inputValue.uuid || inputValue;
                 }
                 return originalValue;
-                
+
             case 'asset':
                 if (typeof inputValue === 'string') {
                     // If input is a string path, convert to asset object
@@ -1497,7 +1466,7 @@ export class ComponentTools implements ToolExecutor {
                     return inputValue;
                 }
                 return originalValue;
-                
+
             default:
                 // For unknown types, try to keep original structure
                 if (typeof inputValue === typeof originalValue) {
@@ -1509,7 +1478,7 @@ export class ComponentTools implements ToolExecutor {
 
         private parseColorString(colorStr: string): { r: number; g: number; b: number; a: number } {
         const str = colorStr.trim();
-        
+
         // Only supports hex format #RRGGBB or #RRGGBBAA
         if (str.startsWith('#')) {
             if (str.length === 7) { // #RRGGBB
@@ -1525,7 +1494,7 @@ export class ComponentTools implements ToolExecutor {
                 return { r, g, b, a };
             }
         }
-        
+
         // If not valid hex format, return error message
         throw new Error(`Invalid color format: "${colorStr}". Only hexadecimal format is supported (e.g., "#FF0000" or "#FF0000FF")`);
     }
@@ -1534,43 +1503,43 @@ export class ComponentTools implements ToolExecutor {
         console.log(`[verifyPropertyChange] Starting verification for ${componentType}.${property}`);
         console.log(`[verifyPropertyChange] Expected value:`, JSON.stringify(expectedValue));
         console.log(`[verifyPropertyChange] Original value:`, JSON.stringify(originalValue));
-        
+
         try {
             // Re-get component info for verification
             console.log(`[verifyPropertyChange] Calling getComponentInfo...`);
             const componentInfo = await this.getComponentInfo(nodeUuid, componentType);
             console.log(`[verifyPropertyChange] getComponentInfo success:`, componentInfo.success);
-            
+
             const allComponents = await this.getComponents(nodeUuid);
             console.log(`[verifyPropertyChange] getComponents success:`, allComponents.success);
-            
+
             if (componentInfo.success && componentInfo.data) {
                 console.log(`[verifyPropertyChange] Component data available, extracting property '${property}'`);
                 const allPropertyNames = Object.keys(componentInfo.data.properties || {});
                 console.log(`[verifyPropertyChange] Available properties:`, allPropertyNames);
                 const propertyData = componentInfo.data.properties?.[property];
                 console.log(`[verifyPropertyChange] Raw property data for '${property}':`, JSON.stringify(propertyData));
-                
+
                 // Extract actual value from property data
                 let actualValue = propertyData;
                 console.log(`[verifyPropertyChange] Initial actualValue:`, JSON.stringify(actualValue));
-                
+
                 if (propertyData && typeof propertyData === 'object' && 'value' in propertyData) {
                     actualValue = propertyData.value;
                     console.log(`[verifyPropertyChange] Extracted actualValue from .value:`, JSON.stringify(actualValue));
                 } else {
                     console.log(`[verifyPropertyChange] No .value property found, using raw data`);
                 }
-                
+
                 // Fix verification logic: check if actual value matches expected value
                 let verified = false;
-                
+
                 if (typeof expectedValue === 'object' && expectedValue !== null && 'uuid' in expectedValue) {
                     // For reference types (node/component/asset), compare UUID
                     const actualUuid = actualValue && typeof actualValue === 'object' && 'uuid' in actualValue ? actualValue.uuid : '';
                     const expectedUuid = expectedValue.uuid || '';
                     verified = actualUuid === expectedUuid && expectedUuid !== '';
-                    
+
                     console.log(`[verifyPropertyChange] Reference comparison:`);
                     console.log(`  - Expected UUID: "${expectedUuid}"`);
                     console.log(`  - Actual UUID: "${actualUuid}"`);
@@ -1582,7 +1551,7 @@ export class ComponentTools implements ToolExecutor {
                     console.log(`[verifyPropertyChange] Value comparison:`);
                     console.log(`  - Expected type: ${typeof expectedValue}`);
                     console.log(`  - Actual type: ${typeof actualValue}`);
-                    
+
                     if (typeof actualValue === typeof expectedValue) {
                         if (typeof actualValue === 'object' && actualValue !== null && expectedValue !== null) {
                             // Deep comparison for object types
@@ -1603,10 +1572,10 @@ export class ComponentTools implements ToolExecutor {
                         console.log(`  - Type mismatch verified: ${verified}`);
                     }
                 }
-                
+
                 console.log(`[verifyPropertyChange] Final verification result: ${verified}`);
                 console.log(`[verifyPropertyChange] Final actualValue:`, JSON.stringify(actualValue));
-                
+
                 const result = {
                     verified,
                     actualValue,
@@ -1628,7 +1597,7 @@ export class ComponentTools implements ToolExecutor {
                         }
                     }
                 };
-                
+
                 console.log(`[verifyPropertyChange] Returning result:`, JSON.stringify(result, null, 2));
                 return result;
             } else {
@@ -1638,7 +1607,7 @@ export class ComponentTools implements ToolExecutor {
             console.error('[verifyPropertyChange] Verification failed with error:', error);
             console.error('[verifyPropertyChange] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
         }
-        
+
         console.log(`[verifyPropertyChange] Returning fallback result`);
         return {
             verified: false,
@@ -1652,17 +1621,17 @@ export class ComponentTools implements ToolExecutor {
      */
     private async checkAndRedirectNodeProperties(args: any): Promise<ToolResponse | null> {
         const { nodeUuid, componentType, property, propertyType, value } = args;
-        
+
         // Detect if this is a basic node property (should use set_node_property)
         const nodeBasicProperties = [
             'name', 'active', 'layer', 'mobility', 'parent', 'children', 'hideFlags'
         ];
-        
+
         // Detect if this is a node transform property (should use set_node_transform)
         const nodeTransformProperties = [
             'position', 'rotation', 'scale', 'eulerAngles', 'angle'
         ];
-        
+
         // Detect attempts to set cc.Node properties (common mistake)
         if (componentType === 'cc.Node' || componentType === 'Node') {
             if (nodeBasicProperties.includes(property)) {
@@ -1679,7 +1648,7 @@ export class ComponentTools implements ToolExecutor {
                   };
               }
           }
-          
+
           // Detect common incorrect usage
           if (nodeBasicProperties.includes(property) || nodeTransformProperties.includes(property)) {
               const methodName = nodeTransformProperties.includes(property) ? 'set_node_transform' : 'set_node_property';
@@ -1689,7 +1658,7 @@ export class ComponentTools implements ToolExecutor {
                   instruction: `Property '${property}' should be set using ${methodName} method, not set_component_property. Please use: ${methodName}(uuid="${nodeUuid}", ${nodeTransformProperties.includes(property) ? property : `property="${property}"`}=${JSON.stringify(value)})`
               };
           }
-          
+
           return null; // Not a node property, continue normal processing
       }
 
@@ -1698,18 +1667,18 @@ export class ComponentTools implements ToolExecutor {
        */
       private generateComponentSuggestion(requestedType: string, availableTypes: string[], property: string): string {
           // Check if similar component types exist
-          const similarTypes = availableTypes.filter(type => 
-              type.toLowerCase().includes(requestedType.toLowerCase()) || 
+          const similarTypes = availableTypes.filter(type =>
+              type.toLowerCase().includes(requestedType.toLowerCase()) ||
               requestedType.toLowerCase().includes(type.toLowerCase())
           );
-          
+
           let instruction = '';
-          
+
           if (similarTypes.length > 0) {
               instruction += `\n\n🔍 Found similar components: ${similarTypes.join(', ')}`;
               instruction += `\n💡 Suggestion: Perhaps you meant to set the '${similarTypes[0]}' component?`;
           }
-          
+
           // Recommend possible components based on property name
           const propertyToComponentMap: Record<string, string[]> = {
               'string': ['cc.Label', 'cc.RichText', 'cc.EditBox'],
@@ -1723,20 +1692,20 @@ export class ComponentTools implements ToolExecutor {
               'contentSize': ['cc.UITransform'],
               'anchorPoint': ['cc.UITransform']
           };
-          
+
           const recommendedComponents = propertyToComponentMap[property] || [];
           const availableRecommended = recommendedComponents.filter(comp => availableTypes.includes(comp));
-          
+
           if (availableRecommended.length > 0) {
               instruction += `\n\n🎯 Based on property '${property}', recommended components: ${availableRecommended.join(', ')}`;
           }
-          
+
           // Provide operation suggestions
           instruction += `\n\n📋 Suggested Actions:`;
           instruction += `\n1. Use get_components(nodeUuid="${requestedType.includes('uuid') ? 'YOUR_NODE_UUID' : 'nodeUuid'}") to view all components on the node`;
           instruction += `\n2. If you need to add a component, use add_component(nodeUuid="...", componentType="${requestedType}")`;
           instruction += `\n3. Verify that the component type name is correct (case-sensitive)`;
-          
+
                   return instruction;
     }
 
@@ -1749,21 +1718,21 @@ export class ComponentTools implements ToolExecutor {
             if (!rawNodeData || !rawNodeData.__comps__) {
                 return null;
             }
-            
+
             // Find component
             const component = rawNodeData.__comps__.find((comp: any) => {
                 const compType = comp.__type__ || comp.cid || comp.type;
                 return compType === componentType;
             });
-            
+
             if (!component) {
                 return null;
             }
-            
+
             // Extract property value
             const properties = this.extractComponentProperties(component);
             const propertyData = properties[property];
-            
+
             if (propertyData && typeof propertyData === 'object' && 'value' in propertyData) {
                 return propertyData.value;
             } else {

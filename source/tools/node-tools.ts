@@ -6,51 +6,60 @@ export class NodeTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'create_node',
-                description: 'Create a new node in the scene. Supports creating empty nodes, nodes with components, or instantiating from assets (prefabs, etc.). IMPORTANT: You should always provide parentUuid to specify where to create the node.',
+                name: 'node_lifecycle',
+                description: 'Manage node lifecycle: create, delete, duplicate, or move nodes in the scene. Available actions: create, delete, duplicate, move.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['create', 'delete', 'duplicate', 'move'],
+                            description: 'The lifecycle action to perform'
+                        },
                         name: {
                             type: 'string',
-                            description: 'Node name'
+                            description: "Node name. Required for 'create' action."
+                        },
+                        uuid: {
+                            type: 'string',
+                            description: "Node UUID. Required for 'delete' and 'duplicate' actions."
                         },
                         parentUuid: {
                             type: 'string',
-                            description: 'Parent node UUID. STRONGLY RECOMMENDED: Always provide this parameter. Use get_current_scene or get_all_nodes to find parent UUIDs. If not provided, node will be created at scene root.'
+                            description: "Parent node UUID. Used for 'create' action. STRONGLY RECOMMENDED: Always provide this parameter. Use get_current_scene or get_all_nodes to find parent UUIDs. If not provided, node will be created at scene root."
                         },
                         nodeType: {
                             type: 'string',
-                            description: 'Node type: Node, 2DNode, 3DNode',
+                            description: "Node type for 'create' action: Node, 2DNode, 3DNode",
                             enum: ['Node', '2DNode', '3DNode'],
                             default: 'Node'
                         },
                         siblingIndex: {
                             type: 'number',
-                            description: 'Sibling index for ordering (-1 means append at end)',
+                            description: "Sibling index for ordering. Used for 'create' and 'move' actions. (-1 means append at end)",
                             default: -1
                         },
                         assetUuid: {
                             type: 'string',
-                            description: 'Asset UUID to instantiate from (e.g., prefab UUID). When provided, creates a node instance from the asset instead of an empty node.'
+                            description: "Asset UUID to instantiate from (e.g., prefab UUID). Used for 'create' action. When provided, creates a node instance from the asset instead of an empty node."
                         },
                         assetPath: {
                             type: 'string',
-                            description: 'Asset path to instantiate from (e.g., "db://assets/prefabs/MyPrefab.prefab"). Alternative to assetUuid.'
+                            description: "Asset path to instantiate from (e.g., \"db://assets/prefabs/MyPrefab.prefab\"). Used for 'create' action. Alternative to assetUuid."
                         },
                         components: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: 'Array of component type names to add to the new node (e.g., ["cc.Sprite", "cc.Button"])'
+                            description: "Array of component type names to add to the new node (e.g., [\"cc.Sprite\", \"cc.Button\"]). Used for 'create' action."
                         },
                         unlinkPrefab: {
                             type: 'boolean',
-                            description: 'If true and creating from prefab, unlink from prefab to create a regular node',
+                            description: "If true and creating from prefab, unlink from prefab to create a regular node. Used for 'create' action.",
                             default: false
                         },
                         keepWorldTransform: {
                             type: 'boolean',
-                            description: 'Whether to keep world transform when creating the node',
+                            description: "Whether to keep world transform when creating the node. Used for 'create' action.",
                             default: false
                         },
                         initialTransform: {
@@ -81,97 +90,71 @@ export class NodeTools implements ToolExecutor {
                                     }
                                 }
                             },
-                            description: 'Initial transform to apply to the created node'
+                            description: "Initial transform to apply to the created node. Used for 'create' action."
+                        },
+                        includeChildren: {
+                            type: 'boolean',
+                            description: "Include children nodes when duplicating. Used for 'duplicate' action.",
+                            default: true
+                        },
+                        nodeUuid: {
+                            type: 'string',
+                            description: "Node UUID to move. Required for 'move' action."
+                        },
+                        newParentUuid: {
+                            type: 'string',
+                            description: "New parent node UUID. Required for 'move' action."
                         }
                     },
-                    required: ['name']
+                    required: ['action']
                 }
             },
             {
-                name: 'get_node_info',
-                description: 'Get node information by UUID',
+                name: 'node_query',
+                description: 'Query and inspect nodes in the scene. Available actions: get_info, find_by_pattern, find_by_name, get_all, detect_type.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['get_info', 'find_by_pattern', 'find_by_name', 'get_all', 'detect_type'],
+                            description: 'The query action to perform'
+                        },
                         uuid: {
                             type: 'string',
-                            description: 'Node UUID'
-                        }
-                    },
-                    required: ['uuid']
-                }
-            },
-            {
-                name: 'find_nodes',
-                description: 'Find nodes by name pattern',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: "Node UUID. Required for 'get_info' and 'detect_type' actions."
+                        },
                         pattern: {
                             type: 'string',
-                            description: 'Name pattern to search'
+                            description: "Name pattern to search. Required for 'find_by_pattern' action."
                         },
                         exactMatch: {
                             type: 'boolean',
-                            description: 'Exact match or partial match',
+                            description: "Exact match or partial match. Used for 'find_by_pattern' action.",
                             default: false
-                        }
-                    },
-                    required: ['pattern']
-                }
-            },
-            {
-                name: 'find_node_by_name',
-                description: 'Find first node by exact name',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                        },
                         name: {
                             type: 'string',
-                            description: 'Node name to find'
+                            description: "Node name to find. Required for 'find_by_name' action."
                         }
                     },
-                    required: ['name']
+                    required: ['action']
                 }
             },
             {
-                name: 'get_all_nodes',
-                description: 'Get all nodes in the scene with their UUIDs',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'set_node_property',
-                description: 'Set node property value (prefer using set_node_transform for active/layer/mobility/position/rotation/scale)',
+                name: 'node_transform',
+                description: 'Modify node transform or properties. Available actions: set_transform, set_property. set_transform automatically handles 2D/3D node differences.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['set_transform', 'set_property'],
+                            description: 'The transform/property action to perform'
+                        },
                         uuid: {
                             type: 'string',
-                            description: 'Node UUID'
-                        },
-                        property: {
-                            type: 'string',
-                            description: 'Property name (e.g., active, name, layer)'
-                        },
-                        value: {
-                            description: 'Property value'
-                        }
-                    },
-                    required: ['uuid', 'property', 'value']
-                }
-            },
-            {
-                name: 'set_node_transform',
-                description: 'Set node transform properties (position, rotation, scale) with unified interface. Automatically handles 2D/3D node differences.',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        uuid: {
-                            type: 'string',
-                            description: 'Node UUID'
+                            description: 'Node UUID. Required for both actions.'
                         },
                         position: {
                             type: 'object',
@@ -180,7 +163,7 @@ export class NodeTools implements ToolExecutor {
                                 y: { type: 'number' },
                                 z: { type: 'number', description: 'Z coordinate (ignored for 2D nodes)' }
                             },
-                            description: 'Node position. For 2D nodes, only x,y are used; z is ignored. For 3D nodes, all coordinates are used.'
+                            description: "Node position. Used for 'set_transform' action. For 2D nodes, only x,y are used; z is ignored. For 3D nodes, all coordinates are used."
                         },
                         rotation: {
                             type: 'object',
@@ -189,7 +172,7 @@ export class NodeTools implements ToolExecutor {
                                 y: { type: 'number', description: 'Y rotation (ignored for 2D nodes)' },
                                 z: { type: 'number', description: 'Z rotation (main rotation axis for 2D nodes)' }
                             },
-                            description: 'Node rotation in euler angles. For 2D nodes, only z rotation is used. For 3D nodes, all axes are used.'
+                            description: "Node rotation in euler angles. Used for 'set_transform' action. For 2D nodes, only z rotation is used. For 3D nodes, all axes are used."
                         },
                         scale: {
                             type: 'object',
@@ -198,80 +181,17 @@ export class NodeTools implements ToolExecutor {
                                 y: { type: 'number' },
                                 z: { type: 'number', description: 'Z scale (usually 1 for 2D nodes)' }
                             },
-                            description: 'Node scale. For 2D nodes, z is typically 1. For 3D nodes, all axes are used.'
-                        }
-                    },
-                    required: ['uuid']
-                }
-            },
-            {
-                name: 'delete_node',
-                description: 'Delete a node from scene',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        uuid: {
-                            type: 'string',
-                            description: 'Node UUID to delete'
-                        }
-                    },
-                    required: ['uuid']
-                }
-            },
-            {
-                name: 'move_node',
-                description: 'Move node to new parent',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Node UUID to move'
+                            description: "Node scale. Used for 'set_transform' action. For 2D nodes, z is typically 1. For 3D nodes, all axes are used."
                         },
-                        newParentUuid: {
+                        property: {
                             type: 'string',
-                            description: 'New parent node UUID'
+                            description: "Property name (e.g., active, name, layer). Required for 'set_property' action."
                         },
-                        siblingIndex: {
-                            type: 'number',
-                            description: 'Sibling index in new parent',
-                            default: -1
+                        value: {
+                            description: "Property value. Required for 'set_property' action."
                         }
                     },
-                    required: ['nodeUuid', 'newParentUuid']
-                }
-            },
-            {
-                name: 'duplicate_node',
-                description: 'Duplicate a node',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        uuid: {
-                            type: 'string',
-                            description: 'Node UUID to duplicate'
-                        },
-                        includeChildren: {
-                            type: 'boolean',
-                            description: 'Include children nodes',
-                            default: true
-                        }
-                    },
-                    required: ['uuid']
-                }
-            },
-            {
-                name: 'detect_node_type',
-                description: 'Detect if a node is 2D or 3D based on its components and properties',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        uuid: {
-                            type: 'string',
-                            description: 'Node UUID to analyze'
-                        }
-                    },
-                    required: ['uuid']
+                    required: ['action', 'uuid']
                 }
             }
         ];
@@ -279,28 +199,43 @@ export class NodeTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'create_node':
-                return await this.createNode(args);
-            case 'get_node_info':
-                return await this.getNodeInfo(args.uuid);
-            case 'find_nodes':
-                return await this.findNodes(args.pattern, args.exactMatch);
-            case 'find_node_by_name':
-                return await this.findNodeByName(args.name);
-            case 'get_all_nodes':
-                return await this.getAllNodes();
-            case 'set_node_property':
-                return await this.setNodeProperty(args.uuid, args.property, args.value);
-            case 'set_node_transform':
-                return await this.setNodeTransform(args);
-            case 'delete_node':
-                return await this.deleteNode(args.uuid);
-            case 'move_node':
-                return await this.moveNode(args.nodeUuid, args.newParentUuid, args.siblingIndex);
-            case 'duplicate_node':
-                return await this.duplicateNode(args.uuid, args.includeChildren);
-            case 'detect_node_type':
-                return await this.detectNodeType(args.uuid);
+            case 'node_lifecycle':
+                switch (args.action) {
+                    case 'create':
+                        return await this.createNode(args);
+                    case 'delete':
+                        return await this.deleteNode(args.uuid);
+                    case 'duplicate':
+                        return await this.duplicateNode(args.uuid, args.includeChildren);
+                    case 'move':
+                        return await this.moveNode(args.nodeUuid, args.newParentUuid, args.siblingIndex);
+                    default:
+                        throw new Error(`Unknown action for node_lifecycle: ${args.action}`);
+                }
+            case 'node_query':
+                switch (args.action) {
+                    case 'get_info':
+                        return await this.getNodeInfo(args.uuid);
+                    case 'find_by_pattern':
+                        return await this.findNodes(args.pattern, args.exactMatch);
+                    case 'find_by_name':
+                        return await this.findNodeByName(args.name);
+                    case 'get_all':
+                        return await this.getAllNodes();
+                    case 'detect_type':
+                        return await this.detectNodeType(args.uuid);
+                    default:
+                        throw new Error(`Unknown action for node_query: ${args.action}`);
+                }
+            case 'node_transform':
+                switch (args.action) {
+                    case 'set_transform':
+                        return await this.setNodeTransform(args);
+                    case 'set_property':
+                        return await this.setNodeProperty(args.uuid, args.property, args.value);
+                    default:
+                        throw new Error(`Unknown action for node_transform: ${args.action}`);
+                }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -310,7 +245,7 @@ export class NodeTools implements ToolExecutor {
         return new Promise(async (resolve) => {
             try {
                 let targetParentUuid = args.parentUuid;
-                
+
                 // If no parent node UUID provided, get scene root node
                 if (!targetParentUuid) {
                     try {
@@ -470,7 +405,7 @@ export class NodeTools implements ToolExecutor {
                     console.warn('Failed to get verification data:', err);
                 }
 
-                const successMessage = finalAssetUuid 
+                const successMessage = finalAssetUuid
                     ? `Node '${args.name}' instantiated from asset successfully`
                     : `Node '${args.name}' created successfully`;
 
@@ -489,8 +424,8 @@ export class NodeTools implements ToolExecutor {
                 });
 
             } catch (err: any) {
-                resolve({ 
-                    success: false, 
+                resolve({
+                    success: false,
                     error: `Failed to create node: ${err.message}. Args: ${JSON.stringify(args)}`
                 });
             }
@@ -507,7 +442,7 @@ export class NodeTools implements ToolExecutor {
                     });
                     return;
                 }
-                
+
                 // Parse node info based on actual returned data structure
                 const info: NodeInfo = {
                     uuid: nodeData.uuid?.value || uuid,
@@ -538,14 +473,14 @@ export class NodeTools implements ToolExecutor {
             // Using tree traversal as primary approach
             Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
                 const nodes: any[] = [];
-                
+
                 const searchTree = (node: any, currentPath: string = '') => {
                     const nodePath = currentPath ? `${currentPath}/${node.name}` : node.name;
-                    
-                    const matches = exactMatch ? 
-                        node.name === pattern : 
+
+                    const matches = exactMatch ?
+                        node.name === pattern :
                         node.name.toLowerCase().includes(pattern.toLowerCase());
-                    
+
                     if (matches) {
                         nodes.push({
                             uuid: node.uuid,
@@ -553,18 +488,18 @@ export class NodeTools implements ToolExecutor {
                             path: nodePath
                         });
                     }
-                    
+
                     if (node.children) {
                         for (const child of node.children) {
                             searchTree(child, nodePath);
                         }
                     }
                 };
-                
+
                 if (tree) {
                     searchTree(tree);
                 }
-                
+
                 resolve({ success: true, data: nodes });
             }).catch((err: Error) => {
                 // Fallback: use scene script
@@ -573,7 +508,7 @@ export class NodeTools implements ToolExecutor {
                     method: 'findNodes',
                     args: [pattern, exactMatch]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -607,7 +542,7 @@ export class NodeTools implements ToolExecutor {
                     method: 'findNodeByName',
                     args: [name]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -621,7 +556,7 @@ export class NodeTools implements ToolExecutor {
         if (node.name === targetName) {
             return node;
         }
-        
+
         if (node.children) {
             for (const child of node.children) {
                 const found = this.searchNodeInTree(child, targetName);
@@ -630,7 +565,7 @@ export class NodeTools implements ToolExecutor {
                 }
             }
         }
-        
+
         return null;
     }
 
@@ -639,7 +574,7 @@ export class NodeTools implements ToolExecutor {
             // Try to query scene node tree
             Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
                 const nodes: any[] = [];
-                
+
                 const traverseTree = (node: any) => {
                     nodes.push({
                         uuid: node.uuid,
@@ -648,18 +583,18 @@ export class NodeTools implements ToolExecutor {
                         active: node.active,
                         path: this.getNodePath(node)
                     });
-                    
+
                     if (node.children) {
                         for (const child of node.children) {
                             traverseTree(child);
                         }
                     }
                 };
-                
+
                 if (tree && tree.children) {
                     traverseTree(tree);
                 }
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -674,7 +609,7 @@ export class NodeTools implements ToolExecutor {
                     method: 'getAllNodes',
                     args: []
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -736,7 +671,7 @@ export class NodeTools implements ToolExecutor {
                     method: 'setNodeProperty',
                     args: [uuid, property, value]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -752,7 +687,7 @@ export class NodeTools implements ToolExecutor {
             const updatePromises: Promise<any>[] = [];
             const updates: string[] = [];
             const warnings: string[] = [];
-            
+
             try {
                 // First get node info to determine if it's 2D or 3D
                 const nodeInfoResponse = await this.getNodeInfo(uuid);
@@ -760,16 +695,16 @@ export class NodeTools implements ToolExecutor {
                     resolve({ success: false, error: 'Failed to get node information' });
                     return;
                 }
-                
+
                 const nodeInfo = nodeInfoResponse.data;
                 const is2DNode = this.is2DNode(nodeInfo);
-                
+
                 if (position) {
                     const normalizedPosition = this.normalizeTransformValue(position, 'position', is2DNode);
                     if (normalizedPosition.warning) {
                         warnings.push(normalizedPosition.warning);
                     }
-                    
+
                     updatePromises.push(
                         Editor.Message.request('scene', 'set-property', {
                             uuid: uuid,
@@ -779,13 +714,13 @@ export class NodeTools implements ToolExecutor {
                     );
                     updates.push('position');
                 }
-                
+
                 if (rotation) {
                     const normalizedRotation = this.normalizeTransformValue(rotation, 'rotation', is2DNode);
                     if (normalizedRotation.warning) {
                         warnings.push(normalizedRotation.warning);
                     }
-                    
+
                     updatePromises.push(
                         Editor.Message.request('scene', 'set-property', {
                             uuid: uuid,
@@ -795,13 +730,13 @@ export class NodeTools implements ToolExecutor {
                     );
                     updates.push('rotation');
                 }
-                
+
                 if (scale) {
                     const normalizedScale = this.normalizeTransformValue(scale, 'scale', is2DNode);
                     if (normalizedScale.warning) {
                         warnings.push(normalizedScale.warning);
                     }
-                    
+
                     updatePromises.push(
                         Editor.Message.request('scene', 'set-property', {
                             uuid: uuid,
@@ -811,14 +746,14 @@ export class NodeTools implements ToolExecutor {
                     );
                     updates.push('scale');
                 }
-                
+
                 if (updatePromises.length === 0) {
                     resolve({ success: false, error: 'No transform properties specified' });
                     return;
                 }
-                
+
                 await Promise.all(updatePromises);
-                
+
                 // Verify the changes by getting updated node info
                 const updatedNodeInfo = await this.getNodeInfo(uuid);
                 const response: any = {
@@ -848,17 +783,17 @@ export class NodeTools implements ToolExecutor {
                         }
                     }
                 };
-                
+
                 if (warnings.length > 0) {
                     response.warning = warnings.join('; ');
                 }
-                
+
                 resolve(response);
-                
+
             } catch (err: any) {
-                resolve({ 
-                    success: false, 
-                    error: `Failed to update transform: ${err.message}` 
+                resolve({
+                    success: false,
+                    error: `Failed to update transform: ${err.message}`
                 });
             }
         });
@@ -867,9 +802,9 @@ export class NodeTools implements ToolExecutor {
     private is2DNode(nodeInfo: any): boolean {
         // Check if node has 2D-specific components or is under Canvas
         const components = nodeInfo.components || [];
-        
+
         // Check for common 2D components
-        const has2DComponents = components.some((comp: any) => 
+        const has2DComponents = components.some((comp: any) =>
             comp.type && (
                 comp.type.includes('cc.Sprite') ||
                 comp.type.includes('cc.Label') ||
@@ -880,12 +815,12 @@ export class NodeTools implements ToolExecutor {
                 comp.type.includes('cc.Graphics')
             )
         );
-        
+
         if (has2DComponents) {
             return true;
         }
-        
-        // Check for 3D-specific components  
+
+        // Check for 3D-specific components
         const has3DComponents = components.some((comp: any) =>
             comp.type && (
                 comp.type.includes('cc.MeshRenderer') ||
@@ -896,17 +831,17 @@ export class NodeTools implements ToolExecutor {
                 comp.type.includes('cc.SpotLight')
             )
         );
-        
+
         if (has3DComponents) {
             return false;
         }
-        
+
         // Default heuristic: if z position is 0 and hasn't been changed, likely 2D
         const position = nodeInfo.position;
         if (position && Math.abs(position.z) < 0.001) {
             return true;
         }
-        
+
         // Default to 3D if uncertain
         return false;
     }
@@ -914,7 +849,7 @@ export class NodeTools implements ToolExecutor {
     private normalizeTransformValue(value: any, type: 'position' | 'rotation' | 'scale', is2D: boolean): { value: any, warning?: string } {
         const result = { ...value };
         let warning: string | undefined;
-        
+
         if (is2D) {
             switch (type) {
                 case 'position':
@@ -925,9 +860,9 @@ export class NodeTools implements ToolExecutor {
                         result.z = 0;
                     }
                     break;
-                    
+
                 case 'rotation':
-                    if ((value.x !== undefined && Math.abs(value.x) > 0.001) || 
+                    if ((value.x !== undefined && Math.abs(value.x) > 0.001) ||
                         (value.y !== undefined && Math.abs(value.y) > 0.001)) {
                         warning = `2D node: x,y rotations ignored, only z rotation applied`;
                         result.x = 0;
@@ -938,7 +873,7 @@ export class NodeTools implements ToolExecutor {
                     }
                     result.z = result.z || 0;
                     break;
-                    
+
                 case 'scale':
                     if (value.z === undefined) {
                         result.z = 1; // Default scale for 2D
@@ -951,7 +886,7 @@ export class NodeTools implements ToolExecutor {
             result.y = result.y !== undefined ? result.y : (type === 'scale' ? 1 : 0);
             result.z = result.z !== undefined ? result.z : (type === 'scale' ? 1 : 0);
         }
-        
+
         return { value: result, warning };
     }
 
@@ -1015,12 +950,12 @@ export class NodeTools implements ToolExecutor {
                 const nodeInfo = nodeInfoResponse.data;
                 const is2D = this.is2DNode(nodeInfo);
                 const components = nodeInfo.components || [];
-                
+
                 // Collect detection reasons
                 const detectionReasons: string[] = [];
-                
+
                 // Check for 2D components
-                const twoDComponents = components.filter((comp: any) => 
+                const twoDComponents = components.filter((comp: any) =>
                     comp.type && (
                         comp.type.includes('cc.Sprite') ||
                         comp.type.includes('cc.Label') ||
@@ -1031,7 +966,7 @@ export class NodeTools implements ToolExecutor {
                         comp.type.includes('cc.Graphics')
                     )
                 );
-                
+
                 // Check for 3D components
                 const threeDComponents = components.filter((comp: any) =>
                     comp.type && (
@@ -1047,11 +982,11 @@ export class NodeTools implements ToolExecutor {
                 if (twoDComponents.length > 0) {
                     detectionReasons.push(`Has 2D components: ${twoDComponents.map((c: any) => c.type).join(', ')}`);
                 }
-                
+
                 if (threeDComponents.length > 0) {
                     detectionReasons.push(`Has 3D components: ${threeDComponents.map((c: any) => c.type).join(', ')}`);
                 }
-                
+
                 // Check position for heuristic
                 const position = nodeInfo.position;
                 if (position && Math.abs(position.z) < 0.001) {
@@ -1083,11 +1018,11 @@ export class NodeTools implements ToolExecutor {
                         }
                     }
                 });
-                
+
             } catch (err: any) {
-                resolve({ 
-                    success: false, 
-                    error: `Failed to detect node type: ${err.message}` 
+                resolve({
+                    success: false,
+                    error: `Failed to detect node type: ${err.message}`
                 });
             }
         });
@@ -1095,20 +1030,20 @@ export class NodeTools implements ToolExecutor {
 
     private getComponentCategory(componentType: string): string {
         if (!componentType) return 'unknown';
-        
-        if (componentType.includes('cc.Sprite') || componentType.includes('cc.Label') || 
+
+        if (componentType.includes('cc.Sprite') || componentType.includes('cc.Label') ||
             componentType.includes('cc.Button') || componentType.includes('cc.Layout') ||
             componentType.includes('cc.Widget') || componentType.includes('cc.Mask') ||
             componentType.includes('cc.Graphics')) {
             return '2D';
         }
-        
+
         if (componentType.includes('cc.MeshRenderer') || componentType.includes('cc.Camera') ||
             componentType.includes('cc.Light') || componentType.includes('cc.DirectionalLight') ||
             componentType.includes('cc.PointLight') || componentType.includes('cc.SpotLight')) {
             return '3D';
         }
-        
+
         return 'generic';
     }
 }

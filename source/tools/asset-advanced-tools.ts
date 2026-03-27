@@ -4,212 +4,113 @@ export class AssetAdvancedTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'save_asset_meta',
-                description: 'Save asset meta information',
+                name: 'asset_advanced',
+                description: 'Advanced asset operations: save meta, generate URLs, check DB readiness, open externally, get dependencies, find unused assets. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The action to perform',
+                            enum: ['save_meta', 'generate_url', 'query_db_ready', 'open_external', 'get_dependencies', 'get_unused']
+                        },
                         urlOrUUID: {
                             type: 'string',
-                            description: 'Asset URL or UUID'
+                            description: 'Asset URL or UUID (used by: save_meta, open_external, get_dependencies)'
                         },
                         content: {
                             type: 'string',
-                            description: 'Asset meta serialized content string'
-                        }
-                    },
-                    required: ['urlOrUUID', 'content']
-                }
-            },
-            {
-                name: 'generate_available_url',
-                description: 'Generate an available URL based on input URL',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'Asset meta serialized content string (used by: save_meta)'
+                        },
                         url: {
                             type: 'string',
-                            description: 'Asset URL to generate available URL for'
-                        }
-                    },
-                    required: ['url']
-                }
-            },
-            {
-                name: 'query_asset_db_ready',
-                description: 'Check if asset database is ready',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'open_asset_external',
-                description: 'Open asset with external program',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        urlOrUUID: {
-                            type: 'string',
-                            description: 'Asset URL or UUID to open'
-                        }
-                    },
-                    required: ['urlOrUUID']
-                }
-            },
-            {
-                name: 'batch_import_assets',
-                description: 'Import multiple assets in batch',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        sourceDirectory: {
-                            type: 'string',
-                            description: 'Source directory path'
-                        },
-                        targetDirectory: {
-                            type: 'string',
-                            description: 'Target directory URL'
-                        },
-                        fileFilter: {
-                            type: 'array',
-                            items: { type: 'string' },
-                            description: 'File extensions to include (e.g., [".png", ".jpg"])',
-                            default: []
-                        },
-                        recursive: {
-                            type: 'boolean',
-                            description: 'Include subdirectories',
-                            default: false
-                        },
-                        overwrite: {
-                            type: 'boolean',
-                            description: 'Overwrite existing files',
-                            default: false
-                        }
-                    },
-                    required: ['sourceDirectory', 'targetDirectory']
-                }
-            },
-            {
-                name: 'batch_delete_assets',
-                description: 'Delete multiple assets in batch',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        urls: {
-                            type: 'array',
-                            items: { type: 'string' },
-                            description: 'Array of asset URLs to delete'
-                        }
-                    },
-                    required: ['urls']
-                }
-            },
-            {
-                name: 'validate_asset_references',
-                description: 'Validate asset references and find broken links',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        directory: {
-                            type: 'string',
-                            description: 'Directory to validate (default: entire project)',
-                            default: 'db://assets'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'get_asset_dependencies',
-                description: 'Get asset dependency tree',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        urlOrUUID: {
-                            type: 'string',
-                            description: 'Asset URL or UUID'
+                            description: 'Asset URL to generate available URL for (used by: generate_url)'
                         },
                         direction: {
                             type: 'string',
-                            description: 'Dependency direction',
+                            description: 'Dependency direction (used by: get_dependencies)',
                             enum: ['dependents', 'dependencies', 'both'],
                             default: 'dependencies'
-                        }
-                    },
-                    required: ['urlOrUUID']
-                }
-            },
-            {
-                name: 'get_unused_assets',
-                description: 'Find unused assets in project',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                        },
                         directory: {
                             type: 'string',
-                            description: 'Directory to scan (default: entire project)',
+                            description: 'Directory to scan (used by: get_unused)',
                             default: 'db://assets'
                         },
                         excludeDirectories: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: 'Directories to exclude from scan',
+                            description: 'Directories to exclude from scan (used by: get_unused)',
                             default: []
                         }
-                    }
+                    },
+                    required: ['action']
                 }
             },
             {
-                name: 'compress_textures',
-                description: 'Batch compress texture assets',
+                name: 'asset_batch',
+                description: 'Batch asset operations: import, delete, validate references, compress textures, export manifest. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'The action to perform',
+                            enum: ['import', 'delete', 'validate_references', 'compress_textures', 'export_manifest']
+                        },
+                        sourceDirectory: {
+                            type: 'string',
+                            description: 'Source directory path (used by: import)'
+                        },
+                        targetDirectory: {
+                            type: 'string',
+                            description: 'Target directory URL (used by: import)'
+                        },
+                        fileFilter: {
+                            type: 'array',
+                            items: { type: 'string' },
+                            description: 'File extensions to include, e.g. [".png", ".jpg"] (used by: import)',
+                            default: []
+                        },
+                        recursive: {
+                            type: 'boolean',
+                            description: 'Include subdirectories (used by: import)',
+                            default: false
+                        },
+                        overwrite: {
+                            type: 'boolean',
+                            description: 'Overwrite existing files (used by: import)',
+                            default: false
+                        },
+                        urls: {
+                            type: 'array',
+                            items: { type: 'string' },
+                            description: 'Array of asset URLs to delete (used by: delete)'
+                        },
                         directory: {
                             type: 'string',
-                            description: 'Directory containing textures',
+                            description: 'Directory to operate on (used by: validate_references, compress_textures, export_manifest)',
                             default: 'db://assets'
                         },
                         format: {
                             type: 'string',
-                            description: 'Compression format',
-                            enum: ['auto', 'jpg', 'png', 'webp'],
+                            description: 'Format for compression (enum: auto, jpg, png, webp) or export (enum: json, csv, xml) (used by: compress_textures, export_manifest)',
                             default: 'auto'
                         },
                         quality: {
                             type: 'number',
-                            description: 'Compression quality (0.1-1.0)',
+                            description: 'Compression quality 0.1-1.0 (used by: compress_textures)',
                             minimum: 0.1,
                             maximum: 1.0,
                             default: 0.8
-                        }
-                    }
-                }
-            },
-            {
-                name: 'export_asset_manifest',
-                description: 'Export asset manifest/inventory',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        directory: {
-                            type: 'string',
-                            description: 'Directory to export manifest for',
-                            default: 'db://assets'
-                        },
-                        format: {
-                            type: 'string',
-                            description: 'Export format',
-                            enum: ['json', 'csv', 'xml'],
-                            default: 'json'
                         },
                         includeMetadata: {
                             type: 'boolean',
-                            description: 'Include asset metadata',
+                            description: 'Include asset metadata (used by: export_manifest)',
                             default: true
                         }
-                    }
+                    },
+                    required: ['action']
                 }
             }
         ];
@@ -217,28 +118,40 @@ export class AssetAdvancedTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'save_asset_meta':
-                return await this.saveAssetMeta(args.urlOrUUID, args.content);
-            case 'generate_available_url':
-                return await this.generateAvailableUrl(args.url);
-            case 'query_asset_db_ready':
-                return await this.queryAssetDbReady();
-            case 'open_asset_external':
-                return await this.openAssetExternal(args.urlOrUUID);
-            case 'batch_import_assets':
-                return await this.batchImportAssets(args);
-            case 'batch_delete_assets':
-                return await this.batchDeleteAssets(args.urls);
-            case 'validate_asset_references':
-                return await this.validateAssetReferences(args.directory);
-            case 'get_asset_dependencies':
-                return await this.getAssetDependencies(args.urlOrUUID, args.direction);
-            case 'get_unused_assets':
-                return await this.getUnusedAssets(args.directory, args.excludeDirectories);
-            case 'compress_textures':
-                return await this.compressTextures(args.directory, args.format, args.quality);
-            case 'export_asset_manifest':
-                return await this.exportAssetManifest(args.directory, args.format, args.includeMetadata);
+            case 'asset_advanced': {
+                switch (args.action) {
+                    case 'save_meta':
+                        return await this.saveAssetMeta(args.urlOrUUID, args.content);
+                    case 'generate_url':
+                        return await this.generateAvailableUrl(args.url);
+                    case 'query_db_ready':
+                        return await this.queryAssetDbReady();
+                    case 'open_external':
+                        return await this.openAssetExternal(args.urlOrUUID);
+                    case 'get_dependencies':
+                        return await this.getAssetDependencies(args.urlOrUUID, args.direction);
+                    case 'get_unused':
+                        return await this.getUnusedAssets(args.directory, args.excludeDirectories);
+                    default:
+                        throw new Error(`Unknown action for asset_advanced: ${args.action}`);
+                }
+            }
+            case 'asset_batch': {
+                switch (args.action) {
+                    case 'import':
+                        return await this.batchImportAssets(args);
+                    case 'delete':
+                        return await this.batchDeleteAssets(args.urls);
+                    case 'validate_references':
+                        return await this.validateAssetReferences(args.directory);
+                    case 'compress_textures':
+                        return await this.compressTextures(args.directory, args.format, args.quality);
+                    case 'export_manifest':
+                        return await this.exportAssetManifest(args.directory, args.format, args.includeMetadata);
+                    default:
+                        throw new Error(`Unknown action for asset_batch: ${args.action}`);
+                }
+            }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -269,8 +182,8 @@ export class AssetAdvancedTools implements ToolExecutor {
                     data: {
                         originalUrl: url,
                         availableUrl: availableUrl,
-                        message: availableUrl === url ? 
-                            'URL is available' : 
+                        message: availableUrl === url ?
+                            'URL is available' :
                             'Generated new available URL'
                     }
                 });
@@ -314,15 +227,15 @@ export class AssetAdvancedTools implements ToolExecutor {
             try {
                 const fs = require('fs');
                 const path = require('path');
-                
+
                 if (!fs.existsSync(args.sourceDirectory)) {
                     resolve({ success: false, error: 'Source directory does not exist' });
                     return;
                 }
 
                 const files = this.getFilesFromDirectory(
-                    args.sourceDirectory, 
-                    args.fileFilter || [], 
+                    args.sourceDirectory,
+                    args.fileFilter || [],
                     args.recursive || false
                 );
 
@@ -334,13 +247,13 @@ export class AssetAdvancedTools implements ToolExecutor {
                     try {
                         const fileName = path.basename(filePath);
                         const targetPath = `${args.targetDirectory}/${fileName}`;
-                        
-                        const result = await Editor.Message.request('asset-db', 'import-asset', 
-                            filePath, targetPath, { 
+
+                        const result = await Editor.Message.request('asset-db', 'import-asset',
+                            filePath, targetPath, {
                                 overwrite: args.overwrite || false,
                                 rename: !(args.overwrite || false)
                             });
-                        
+
                         importResults.push({
                             source: filePath,
                             target: targetPath,
@@ -380,11 +293,11 @@ export class AssetAdvancedTools implements ToolExecutor {
         const files: string[] = [];
 
         const items = fs.readdirSync(dirPath);
-        
+
         for (const item of items) {
             const fullPath = path.join(dirPath, item);
             const stat = fs.statSync(fullPath);
-            
+
             if (stat.isFile()) {
                 if (fileFilter.length === 0 || fileFilter.some(ext => item.toLowerCase().endsWith(ext.toLowerCase()))) {
                     files.push(fullPath);
@@ -393,7 +306,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                 files.push(...this.getFilesFromDirectory(fullPath, fileFilter, recursive));
             }
         }
-        
+
         return files;
     }
 
@@ -443,7 +356,7 @@ export class AssetAdvancedTools implements ToolExecutor {
             try {
                 // Get all assets in directory
                 const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
-                
+
                 const brokenReferences: any[] = [];
                 const validReferences: any[] = [];
 
@@ -518,7 +431,7 @@ export class AssetAdvancedTools implements ToolExecutor {
         return new Promise(async (resolve) => {
             try {
                 const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
-                
+
                 const manifest: any[] = [];
 
                 for (const asset of assets) {
@@ -579,10 +492,10 @@ export class AssetAdvancedTools implements ToolExecutor {
 
     private convertToCSV(data: any[]): string {
         if (data.length === 0) return '';
-        
+
         const headers = Object.keys(data[0]);
         const csvRows = [headers.join(',')];
-        
+
         for (const row of data) {
             const values = headers.map(header => {
                 const value = row[header];
@@ -590,24 +503,24 @@ export class AssetAdvancedTools implements ToolExecutor {
             });
             csvRows.push(values.join(','));
         }
-        
+
         return csvRows.join('\n');
     }
 
     private convertToXML(data: any[]): string {
         let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<assets>\n';
-        
+
         for (const item of data) {
             xml += '  <asset>\n';
             for (const [key, value] of Object.entries(item)) {
-                const xmlValue = typeof value === 'object' ? 
-                    JSON.stringify(value) : 
+                const xmlValue = typeof value === 'object' ?
+                    JSON.stringify(value) :
                     String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                 xml += `    <${key}>${xmlValue}</${key}>\n`;
             }
             xml += '  </asset>\n';
         }
-        
+
         xml += '</assets>';
         return xml;
     }

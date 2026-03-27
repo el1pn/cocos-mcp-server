@@ -4,57 +4,23 @@ export class ServerTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'query_server_ip_list',
-                description: 'Query server IP list',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'query_sorted_server_ip_list',
-                description: 'Get sorted server IP list',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'query_server_port',
-                description: 'Query editor server current port',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'get_server_status',
-                description: 'Get comprehensive server status information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'check_server_connectivity',
-                description: 'Check server connectivity and network status',
+                name: 'server_info',
+                description: 'Query server and network information. Actions: get_ip_list (query server IP list), get_sorted_ip_list (get sorted server IP list), get_port (query editor server current port), get_status (get comprehensive server status), check_connectivity (check server connectivity and network status), get_network_interfaces (get available network interfaces)',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'Action to perform',
+                            enum: ['get_ip_list', 'get_sorted_ip_list', 'get_port', 'get_status', 'check_connectivity', 'get_network_interfaces']
+                        },
                         timeout: {
                             type: 'number',
-                            description: 'Timeout in milliseconds',
+                            description: 'Timeout in milliseconds (action: check_connectivity)',
                             default: 5000
                         }
-                    }
-                }
-            },
-            {
-                name: 'get_network_interfaces',
-                description: 'Get available network interfaces',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
+                    },
+                    required: ['action']
                 }
             }
         ];
@@ -62,18 +28,23 @@ export class ServerTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'query_server_ip_list':
-                return await this.queryServerIPList();
-            case 'query_sorted_server_ip_list':
-                return await this.querySortedServerIPList();
-            case 'query_server_port':
-                return await this.queryServerPort();
-            case 'get_server_status':
-                return await this.getServerStatus();
-            case 'check_server_connectivity':
-                return await this.checkServerConnectivity(args.timeout);
-            case 'get_network_interfaces':
-                return await this.getNetworkInterfaces();
+            case 'server_info':
+                switch (args.action) {
+                    case 'get_ip_list':
+                        return await this.queryServerIPList();
+                    case 'get_sorted_ip_list':
+                        return await this.querySortedServerIPList();
+                    case 'get_port':
+                        return await this.queryServerPort();
+                    case 'get_status':
+                        return await this.getServerStatus();
+                    case 'check_connectivity':
+                        return await this.checkServerConnectivity(args.timeout);
+                    case 'get_network_interfaces':
+                        return await this.getNetworkInterfaces();
+                    default:
+                        throw new Error(`Unknown action: ${args.action}`);
+                }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -182,7 +153,7 @@ export class ServerTools implements ToolExecutor {
     private async checkServerConnectivity(timeout: number = 5000): Promise<ToolResponse> {
         return new Promise(async (resolve) => {
             const startTime = Date.now();
-            
+
             try {
                 // Test basic Editor API connectivity
                 const testPromise = Editor.Message.request('server', 'query-port');
@@ -191,9 +162,9 @@ export class ServerTools implements ToolExecutor {
                 });
 
                 await Promise.race([testPromise, timeoutPromise]);
-                
+
                 const responseTime = Date.now() - startTime;
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -206,7 +177,7 @@ export class ServerTools implements ToolExecutor {
 
             } catch (err: any) {
                 const responseTime = Date.now() - startTime;
-                
+
                 resolve({
                     success: false,
                     data: {
@@ -226,7 +197,7 @@ export class ServerTools implements ToolExecutor {
                 // Get network interfaces using Node.js os module
                 const os = require('os');
                 const interfaces = os.networkInterfaces();
-                
+
                 const networkInfo = Object.entries(interfaces).map(([name, addresses]: [string, any]) => ({
                     name: name,
                     addresses: addresses.map((addr: any) => ({
@@ -239,7 +210,7 @@ export class ServerTools implements ToolExecutor {
 
                 // Also try to get server IPs for comparison
                 const serverIPResult = await this.queryServerIPList();
-                
+
                 resolve({
                     success: true,
                     data: {

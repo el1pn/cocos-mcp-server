@@ -32,160 +32,117 @@ export class DebugTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'get_console_logs',
-                description: 'Get editor console logs',
+                name: 'debug_console',
+                description: 'Manage editor console. Actions: get_logs (get editor console logs), clear (clear editor console), execute_script (execute JavaScript in scene context)',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'Action to perform',
+                            enum: ['get_logs', 'clear', 'execute_script']
+                        },
                         limit: {
                             type: 'number',
-                            description: 'Number of recent logs to retrieve',
+                            description: 'Number of recent logs to retrieve (action: get_logs)',
                             default: 100
                         },
                         filter: {
                             type: 'string',
-                            description: 'Filter logs by type',
+                            description: 'Filter logs by type (action: get_logs)',
                             enum: ['all', 'log', 'warn', 'error', 'info'],
                             default: 'all'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'clear_console',
-                description: 'Clear editor console',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'execute_script',
-                description: 'Execute JavaScript in scene context',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                        },
                         script: {
                             type: 'string',
-                            description: 'JavaScript code to execute'
+                            description: 'JavaScript code to execute (action: execute_script)'
                         }
                     },
-                    required: ['script']
+                    required: ['action']
                 }
             },
             {
-                name: 'get_node_tree',
-                description: 'Get detailed node tree for debugging',
+                name: 'debug_inspect',
+                description: 'Inspect and validate scene. Actions: get_node_tree (get detailed node tree), get_performance_stats (get performance statistics), validate_scene (validate current scene for issues), get_editor_info (get editor and environment information)',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'Action to perform',
+                            enum: ['get_node_tree', 'get_performance_stats', 'validate_scene', 'get_editor_info']
+                        },
                         rootUuid: {
                             type: 'string',
-                            description: 'Root node UUID (optional, uses scene root if not provided)'
+                            description: 'Root node UUID (action: get_node_tree, optional, uses scene root if not provided)'
                         },
                         maxDepth: {
                             type: 'number',
-                            description: 'Maximum tree depth',
+                            description: 'Maximum tree depth (action: get_node_tree)',
                             default: 10
-                        }
-                    }
-                }
-            },
-            {
-                name: 'get_performance_stats',
-                description: 'Get performance statistics',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'validate_scene',
-                description: 'Validate current scene for issues',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                        },
                         checkMissingAssets: {
                             type: 'boolean',
-                            description: 'Check for missing asset references',
+                            description: 'Check for missing asset references (action: validate_scene)',
                             default: true
                         },
                         checkPerformance: {
                             type: 'boolean',
-                            description: 'Check for performance issues',
+                            description: 'Check for performance issues (action: validate_scene)',
                             default: true
                         }
-                    }
+                    },
+                    required: ['action']
                 }
             },
             {
-                name: 'get_editor_info',
-                description: 'Get editor and environment information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'get_project_logs',
-                description: 'Get project logs from temp/logs/project.log file',
+                name: 'debug_logs',
+                description: 'Manage project log files. Actions: get_project_logs (get project logs from temp/logs/project.log), get_log_file_info (get information about the project log file), search_logs (search for specific patterns or errors in project logs)',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            description: 'Action to perform',
+                            enum: ['get_project_logs', 'get_log_file_info', 'search_logs']
+                        },
                         lines: {
                             type: 'number',
-                            description: 'Number of lines to read from the end of the log file (default: 100)',
+                            description: 'Number of lines to read from the end of the log file (action: get_project_logs)',
                             default: 100,
                             minimum: 1,
                             maximum: 10000
                         },
                         filterKeyword: {
                             type: 'string',
-                            description: 'Filter logs containing specific keyword (optional)'
+                            description: 'Filter logs containing specific keyword (action: get_project_logs)'
                         },
                         logLevel: {
                             type: 'string',
-                            description: 'Filter by log level',
+                            description: 'Filter by log level (action: get_project_logs)',
                             enum: ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE', 'ALL'],
                             default: 'ALL'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'get_log_file_info',
-                description: 'Get information about the project log file',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'search_project_logs',
-                description: 'Search for specific patterns or errors in project logs',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                        },
                         pattern: {
                             type: 'string',
-                            description: 'Search pattern (supports regex)'
+                            description: 'Search pattern, supports regex (action: search_logs)'
                         },
                         maxResults: {
                             type: 'number',
-                            description: 'Maximum number of matching results',
+                            description: 'Maximum number of matching results (action: search_logs)',
                             default: 20,
                             minimum: 1,
                             maximum: 100
                         },
                         contextLines: {
                             type: 'number',
-                            description: 'Number of context lines to show around each match',
+                            description: 'Number of context lines to show around each match (action: search_logs)',
                             default: 2,
                             minimum: 0,
                             maximum: 10
                         }
                     },
-                    required: ['pattern']
+                    required: ['action']
                 }
             }
         ];
@@ -193,26 +150,41 @@ export class DebugTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'get_console_logs':
-                return await this.getConsoleLogs(args.limit, args.filter);
-            case 'clear_console':
-                return await this.clearConsole();
-            case 'execute_script':
-                return await this.executeScript(args.script);
-            case 'get_node_tree':
-                return await this.getNodeTree(args.rootUuid, args.maxDepth);
-            case 'get_performance_stats':
-                return await this.getPerformanceStats();
-            case 'validate_scene':
-                return await this.validateScene(args);
-            case 'get_editor_info':
-                return await this.getEditorInfo();
-            case 'get_project_logs':
-                return await this.getProjectLogs(args.lines, args.filterKeyword, args.logLevel);
-            case 'get_log_file_info':
-                return await this.getLogFileInfo();
-            case 'search_project_logs':
-                return await this.searchProjectLogs(args.pattern, args.maxResults, args.contextLines);
+            case 'debug_console':
+                switch (args.action) {
+                    case 'get_logs':
+                        return await this.getConsoleLogs(args.limit, args.filter);
+                    case 'clear':
+                        return await this.clearConsole();
+                    case 'execute_script':
+                        return await this.executeScript(args.script);
+                    default:
+                        throw new Error(`Unknown action: ${args.action}`);
+                }
+            case 'debug_inspect':
+                switch (args.action) {
+                    case 'get_node_tree':
+                        return await this.getNodeTree(args.rootUuid, args.maxDepth);
+                    case 'get_performance_stats':
+                        return await this.getPerformanceStats();
+                    case 'validate_scene':
+                        return await this.validateScene(args);
+                    case 'get_editor_info':
+                        return await this.getEditorInfo();
+                    default:
+                        throw new Error(`Unknown action: ${args.action}`);
+                }
+            case 'debug_logs':
+                switch (args.action) {
+                    case 'get_project_logs':
+                        return await this.getProjectLogs(args.lines, args.filterKeyword, args.logLevel);
+                    case 'get_log_file_info':
+                        return await this.getLogFileInfo();
+                    case 'search_logs':
+                        return await this.searchProjectLogs(args.pattern, args.maxResults, args.contextLines);
+                    default:
+                        throw new Error(`Unknown action: ${args.action}`);
+                }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -220,13 +192,13 @@ export class DebugTools implements ToolExecutor {
 
     private async getConsoleLogs(limit: number = 100, filter: string = 'all'): Promise<ToolResponse> {
         let logs = this.consoleMessages;
-        
+
         if (filter !== 'all') {
             logs = logs.filter(log => log.type === filter);
         }
 
         const recentLogs = logs.slice(-limit);
-        
+
         return {
             success: true,
             data: {
@@ -239,7 +211,7 @@ export class DebugTools implements ToolExecutor {
 
     private async clearConsole(): Promise<ToolResponse> {
         this.consoleMessages = [];
-        
+
         try {
             // Note: Editor.Message.send may not return a promise in all versions
             Editor.Message.send('console', 'clear');
@@ -281,7 +253,7 @@ export class DebugTools implements ToolExecutor {
 
                 try {
                     const nodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
-                    
+
                     const tree = {
                         uuid: nodeData.uuid,
                         name: nodeData.name,
@@ -367,7 +339,7 @@ export class DebugTools implements ToolExecutor {
             if (options.checkPerformance) {
                 const hierarchy = await Editor.Message.request('scene', 'query-hierarchy');
                 const nodeCount = this.countNodes(hierarchy.children);
-                
+
                 if (nodeCount > 1000) {
                     issues.push({
                         type: 'warning',
@@ -430,7 +402,7 @@ export class DebugTools implements ToolExecutor {
                 '/Users/lizhiyong/NewProject_3',
                 process.cwd(),
             ].filter(p => p !== null);
-            
+
             for (const basePath of possiblePaths) {
                 const testPath = path.join(basePath, 'temp/logs/project.log');
                 if (fs.existsSync(testPath)) {
@@ -438,7 +410,7 @@ export class DebugTools implements ToolExecutor {
                     break;
                 }
             }
-            
+
             if (!logFilePath) {
                 return {
                     success: false,
@@ -449,27 +421,27 @@ export class DebugTools implements ToolExecutor {
             // Read the file content
             const logContent = fs.readFileSync(logFilePath, 'utf8');
             const logLines = logContent.split('\n').filter(line => line.trim() !== '');
-            
+
             // Get the last N lines
             const recentLines = logLines.slice(-lines);
-            
+
             // Apply filters
             let filteredLines = recentLines;
-            
+
             // Filter by log level if not 'ALL'
             if (logLevel !== 'ALL') {
-                filteredLines = filteredLines.filter(line => 
+                filteredLines = filteredLines.filter(line =>
                     line.includes(`[${logLevel}]`) || line.includes(logLevel.toLowerCase())
                 );
             }
-            
+
             // Filter by keyword if provided
             if (filterKeyword) {
-                filteredLines = filteredLines.filter(line => 
+                filteredLines = filteredLines.filter(line =>
                     line.toLowerCase().includes(filterKeyword.toLowerCase())
                 );
             }
-            
+
             return {
                 success: true,
                 data: {
@@ -499,7 +471,7 @@ export class DebugTools implements ToolExecutor {
                 '/Users/lizhiyong/NewProject_3',
                 process.cwd(),
             ].filter(p => p !== null);
-            
+
             for (const basePath of possiblePaths) {
                 const testPath = path.join(basePath, 'temp/logs/project.log');
                 if (fs.existsSync(testPath)) {
@@ -507,7 +479,7 @@ export class DebugTools implements ToolExecutor {
                     break;
                 }
             }
-            
+
             if (!logFilePath) {
                 return {
                     success: false,
@@ -518,7 +490,7 @@ export class DebugTools implements ToolExecutor {
             const stats = fs.statSync(logFilePath);
             const logContent = fs.readFileSync(logFilePath, 'utf8');
             const lineCount = logContent.split('\n').filter(line => line.trim() !== '').length;
-            
+
             return {
                 success: true,
                 data: {
@@ -548,7 +520,7 @@ export class DebugTools implements ToolExecutor {
                 '/Users/lizhiyong/NewProject_3',
                 process.cwd(),
             ].filter(p => p !== null);
-            
+
             for (const basePath of possiblePaths) {
                 const testPath = path.join(basePath, 'temp/logs/project.log');
                 if (fs.existsSync(testPath)) {
@@ -556,7 +528,7 @@ export class DebugTools implements ToolExecutor {
                     break;
                 }
             }
-            
+
             if (!logFilePath) {
                 return {
                     success: false,
@@ -566,7 +538,7 @@ export class DebugTools implements ToolExecutor {
 
             const logContent = fs.readFileSync(logFilePath, 'utf8');
             const logLines = logContent.split('\n');
-            
+
             // Create regex pattern (support both string and regex patterns)
             let regex: RegExp;
             try {
@@ -575,17 +547,17 @@ export class DebugTools implements ToolExecutor {
                 // If pattern is not valid regex, treat as literal string
                 regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
             }
-            
+
             const matches: any[] = [];
             let resultCount = 0;
-            
+
             for (let i = 0; i < logLines.length && resultCount < maxResults; i++) {
                 const line = logLines[i];
                 if (regex.test(line)) {
                     // Get context lines
                     const contextStart = Math.max(0, i - contextLines);
                     const contextEnd = Math.min(logLines.length - 1, i + contextLines);
-                    
+
                     const contextLinesArray = [];
                     for (let j = contextStart; j <= contextEnd; j++) {
                         contextLinesArray.push({
@@ -594,20 +566,20 @@ export class DebugTools implements ToolExecutor {
                             isMatch: j === i
                         });
                     }
-                    
+
                     matches.push({
                         lineNumber: i + 1,
                         matchedLine: line,
                         context: contextLinesArray
                     });
-                    
+
                     resultCount++;
-                    
+
                     // Reset regex lastIndex for global search
                     regex.lastIndex = 0;
                 }
             }
-            
+
             return {
                 success: true,
                 data: {
@@ -631,12 +603,12 @@ export class DebugTools implements ToolExecutor {
         const units = ['B', 'KB', 'MB', 'GB'];
         let size = bytes;
         let unitIndex = 0;
-        
+
         while (size >= 1024 && unitIndex < units.length - 1) {
             size /= 1024;
             unitIndex++;
         }
-        
+
         return `${size.toFixed(2)} ${units[unitIndex]}`;
     }
 }

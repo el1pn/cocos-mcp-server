@@ -4,180 +4,106 @@ export class PrefabTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'get_prefab_list',
-                description: 'Get all prefabs in the project',
+                name: 'prefab_lifecycle',
+                description: 'Manage prefab lifecycle: create, instantiate, update, or duplicate prefabs. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
-                        folder: {
+                        action: {
                             type: 'string',
-                            description: 'Folder path to search (optional)',
-                            default: 'db://assets'
-                        }
-                    }
-                }
-            },
-            {
-                name: 'load_prefab',
-                description: 'Load a prefab by path',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            enum: ['create', 'instantiate', 'update', 'duplicate'],
+                            description: 'Action to perform: "create" - create a prefab from a node, "instantiate" - instantiate a prefab in the scene, "update" - update an existing prefab, "duplicate" - duplicate an existing prefab'
+                        },
                         prefabPath: {
                             type: 'string',
-                            description: 'Prefab asset path'
-                        }
-                    },
-                    required: ['prefabPath']
-                }
-            },
-            {
-                name: 'instantiate_prefab',
-                description: 'Instantiate a prefab in the scene',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        prefabPath: {
+                            description: 'Prefab asset path (used by: instantiate, update)'
+                        },
+                        nodeUuid: {
                             type: 'string',
-                            description: 'Prefab asset path'
+                            description: 'Source node UUID (used by: create, update)'
+                        },
+                        savePath: {
+                            type: 'string',
+                            description: 'Path to save the prefab, e.g. db://assets/prefabs/MyPrefab.prefab (used by: create)'
+                        },
+                        prefabName: {
+                            type: 'string',
+                            description: 'Prefab name (used by: create)'
                         },
                         parentUuid: {
                             type: 'string',
-                            description: 'Parent node UUID (optional)'
+                            description: 'Parent node UUID (used by: instantiate, optional)'
                         },
                         position: {
                             type: 'object',
-                            description: 'Initial position',
+                            description: 'Initial position (used by: instantiate, optional)',
                             properties: {
                                 x: { type: 'number' },
                                 y: { type: 'number' },
                                 z: { type: 'number' }
                             }
-                        }
-                    },
-                    required: ['prefabPath']
-                }
-            },
-            {
-                name: 'create_prefab',
-                description: 'Create a prefab from a node with all children and components',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Source node UUID'
                         },
-                        savePath: {
-                            type: 'string',
-                            description: 'Path to save the prefab (e.g., db://assets/prefabs/MyPrefab.prefab)'
-                        },
-                        prefabName: {
-                            type: 'string',
-                            description: 'Prefab name'
-                        }
-                    },
-                    required: ['nodeUuid', 'savePath', 'prefabName']
-                }
-            },
-            {
-                name: 'update_prefab',
-                description: 'Update an existing prefab',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        prefabPath: {
-                            type: 'string',
-                            description: 'Prefab asset path'
-                        },
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Node UUID with changes'
-                        }
-                    },
-                    required: ['prefabPath', 'nodeUuid']
-                }
-            },
-            {
-                name: 'revert_prefab',
-                description: 'Revert prefab instance to original',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        nodeUuid: {
-                            type: 'string',
-                            description: 'Prefab instance node UUID'
-                        }
-                    },
-                    required: ['nodeUuid']
-                }
-            },
-            {
-                name: 'get_prefab_info',
-                description: 'Get detailed prefab information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        prefabPath: {
-                            type: 'string',
-                            description: 'Prefab asset path'
-                        }
-                    },
-                    required: ['prefabPath']
-                }
-            },
-            {
-                name: 'validate_prefab',
-                description: 'Validate a prefab file format',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        prefabPath: {
-                            type: 'string',
-                            description: 'Prefab asset path'
-                        }
-                    },
-                    required: ['prefabPath']
-                }
-            },
-            {
-                name: 'duplicate_prefab',
-                description: 'Duplicate an existing prefab',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
                         sourcePrefabPath: {
                             type: 'string',
-                            description: 'Source prefab path'
+                            description: 'Source prefab path (used by: duplicate)'
                         },
                         targetPrefabPath: {
                             type: 'string',
-                            description: 'Target prefab path'
+                            description: 'Target prefab path (used by: duplicate)'
                         },
                         newPrefabName: {
                             type: 'string',
-                            description: 'New prefab name'
+                            description: 'New prefab name (used by: duplicate, optional)'
                         }
                     },
-                    required: ['sourcePrefabPath', 'targetPrefabPath']
+                    required: ['action']
                 }
             },
             {
-                name: 'restore_prefab_node',
-                description: 'Restore prefab node using prefab asset (built-in undo record)',
+                name: 'prefab_query',
+                description: 'Query prefab information: get a list of prefabs, load a prefab, get detailed info, or validate a prefab file. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['get_list', 'load', 'get_info', 'validate'],
+                            description: 'Action to perform: "get_list" - get all prefabs in the project, "load" - load a prefab by path, "get_info" - get detailed prefab information, "validate" - validate a prefab file format'
+                        },
+                        prefabPath: {
+                            type: 'string',
+                            description: 'Prefab asset path (used by: load, get_info, validate)'
+                        },
+                        folder: {
+                            type: 'string',
+                            description: 'Folder path to search (used by: get_list, optional, default: db://assets)',
+                            default: 'db://assets'
+                        }
+                    },
+                    required: ['action']
+                }
+            },
+            {
+                name: 'prefab_instance',
+                description: 'Manage prefab instances: revert a prefab instance to its original state or restore a prefab node using a prefab asset. Use the "action" parameter to select the operation.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['revert', 'restore'],
+                            description: 'Action to perform: "revert" - revert prefab instance to original, "restore" - restore prefab node using prefab asset (built-in undo record)'
+                        },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Prefab instance node UUID'
+                            description: 'Prefab instance node UUID (used by: revert, restore)'
                         },
                         assetUuid: {
                             type: 'string',
-                            description: 'Prefab asset UUID'
+                            description: 'Prefab asset UUID (used by: restore)'
                         }
                     },
-                    required: ['nodeUuid', 'assetUuid']
+                    required: ['action', 'nodeUuid']
                 }
             }
         ];
@@ -185,26 +111,44 @@ export class PrefabTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'get_prefab_list':
-                return await this.getPrefabList(args.folder);
-            case 'load_prefab':
-                return await this.loadPrefab(args.prefabPath);
-            case 'instantiate_prefab':
-                return await this.instantiatePrefab(args);
-            case 'create_prefab':
-                return await this.createPrefab(args);
-            case 'update_prefab':
-                return await this.updatePrefab(args.prefabPath, args.nodeUuid);
-            case 'revert_prefab':
-                return await this.revertPrefab(args.nodeUuid);
-            case 'get_prefab_info':
-                return await this.getPrefabInfo(args.prefabPath);
-            case 'validate_prefab':
-                return await this.validatePrefab(args.prefabPath);
-            case 'duplicate_prefab':
-                return await this.duplicatePrefab(args);
-            case 'restore_prefab_node':
-                return await this.restorePrefabNode(args.nodeUuid, args.assetUuid);
+            case 'prefab_lifecycle': {
+                switch (args.action) {
+                    case 'create':
+                        return await this.createPrefab(args);
+                    case 'instantiate':
+                        return await this.instantiatePrefab(args);
+                    case 'update':
+                        return await this.updatePrefab(args.prefabPath, args.nodeUuid);
+                    case 'duplicate':
+                        return await this.duplicatePrefab(args);
+                    default:
+                        throw new Error(`Unknown action for prefab_lifecycle: ${args.action}`);
+                }
+            }
+            case 'prefab_query': {
+                switch (args.action) {
+                    case 'get_list':
+                        return await this.getPrefabList(args.folder);
+                    case 'load':
+                        return await this.loadPrefab(args.prefabPath);
+                    case 'get_info':
+                        return await this.getPrefabInfo(args.prefabPath);
+                    case 'validate':
+                        return await this.validatePrefab(args.prefabPath);
+                    default:
+                        throw new Error(`Unknown action for prefab_query: ${args.action}`);
+                }
+            }
+            case 'prefab_instance': {
+                switch (args.action) {
+                    case 'revert':
+                        return await this.revertPrefab(args.nodeUuid);
+                    case 'restore':
+                        return await this.restorePrefabNode(args.nodeUuid, args.assetUuid);
+                    default:
+                        throw new Error(`Unknown action for prefab_instance: ${args.action}`);
+                }
+            }
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -212,9 +156,9 @@ export class PrefabTools implements ToolExecutor {
 
     private async getPrefabList(folder: string = 'db://assets'): Promise<ToolResponse> {
         return new Promise((resolve) => {
-            const pattern = folder.endsWith('/') ? 
+            const pattern = folder.endsWith('/') ?
                 `${folder}**/*.prefab` : `${folder}/**/*.prefab`;
-            
+
             Editor.Message.request('asset-db', 'query-assets', {
                 pattern: pattern
             }).then((results: any[]) => {
@@ -237,7 +181,7 @@ export class PrefabTools implements ToolExecutor {
                 if (!assetInfo) {
                     throw new Error('Prefab not found');
                 }
-                
+
                 return Editor.Message.request('scene', 'load-asset', {
                     uuid: assetInfo.uuid
                 });
@@ -301,7 +245,7 @@ export class PrefabTools implements ToolExecutor {
                     prefabUuid: assetInfo.uuid,
                     prefabPath: args.prefabPath
                 });
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -313,8 +257,8 @@ export class PrefabTools implements ToolExecutor {
                     }
                 });
             } catch (err: any) {
-                resolve({ 
-                    success: false, 
+                resolve({
+                    success: false,
                     error: `Prefab instantiation failed: ${err.message}`,
                     instruction: 'Please check that the prefab path is correct and the prefab file format is valid'
                 });
@@ -335,14 +279,14 @@ export class PrefabTools implements ToolExecutor {
             }
 
             // Find the prefab root node's fileId (usually the second object, index 1)
-            const rootNode = prefabContent.data.find((item: any) => item.__type === 'cc.Node' && item._parent === null);
+            const rootNode = prefabContent.data.find((item: any) => item.__type__ === 'cc.Node' && item._parent === null);
             if (!rootNode || !rootNode._prefab) {
                 throw new Error('Unable to find prefab root node or its prefab info');
             }
 
             // Get the root node's PrefabInfo
             const rootPrefabInfo = prefabContent.data[rootNode._prefab.__id__];
-            if (!rootPrefabInfo || rootPrefabInfo.__type !== 'cc.PrefabInfo') {
+            if (!rootPrefabInfo || rootPrefabInfo.__type__ !== 'cc.PrefabInfo') {
                 throw new Error('Unable to find PrefabInfo for prefab root node');
             }
 
@@ -443,7 +387,7 @@ export class PrefabTools implements ToolExecutor {
             const fsPath = prefabPath.replace('db://assets/', 'assets/').replace('db://assets', 'assets');
             const fs = require('fs');
             const path = require('path');
-            
+
             // Try multiple possible project root paths
             const possiblePaths = [
                 path.resolve(process.cwd(), '../../NewProject_3', fsPath),
@@ -717,12 +661,12 @@ export class PrefabTools implements ToolExecutor {
                 // Step 4: Update prefab file content
                 console.log('Updating prefab file content...');
                 const updateResult = await this.updateAssetWithAssetDB(savePath, prefabContentString);
-                
+
                 // Step 5: Create corresponding meta file (using actual UUID)
                 console.log('Creating prefab meta file...');
                 const metaContent = this.createStandardMetaContent(prefabName, actualPrefabUuid);
                 const metaResult = await this.createMetaWithAssetDB(savePath, metaContent);
-                
+
                 // Step 6: Reimport asset to update references
                 console.log('Reimporting prefab asset...');
                 const reimportResult = await this.reimportAssetWithAssetDB(savePath);
@@ -730,7 +674,7 @@ export class PrefabTools implements ToolExecutor {
                 // Step 7: Try to convert the original node to a prefab instance
                 console.log('Attempting to convert original node to prefab instance...');
                 const convertResult = await this.convertNodeToPrefabInstance(nodeUuid, actualPrefabUuid, savePath);
-                
+
                 resolve({
                     success: true,
                     data: {
@@ -772,7 +716,7 @@ export class PrefabTools implements ToolExecutor {
                 }
 
                 const prefabName = args.prefabName || 'NewPrefab';
-                const fullPath = pathParam.endsWith('.prefab') ? 
+                const fullPath = pathParam.endsWith('.prefab') ?
                     pathParam : `${pathParam}/${prefabName}.prefab`;
 
                 const includeChildren = args.includeChildren !== false; // Default to true
@@ -863,7 +807,7 @@ export class PrefabTools implements ToolExecutor {
                 if (saveResult.success) {
                     // After successful save, convert original node to prefab instance
                     const convertResult = await this.convertNodeToPrefabInstance(nodeUuid, prefabPath, prefabUuid);
-                    
+
                     resolve({
                         success: true,
                         data: {
@@ -872,7 +816,7 @@ export class PrefabTools implements ToolExecutor {
                             nodeUuid: nodeUuid,
                             prefabName: prefabName,
                             convertedToPrefabInstance: convertResult.success,
-                            message: convertResult.success ? 
+                            message: convertResult.success ?
                                 'Custom prefab created successfully, original node converted to prefab instance' :
                                 'Prefab created successfully, but node conversion failed'
                         }
@@ -904,7 +848,7 @@ export class PrefabTools implements ToolExecutor {
                 }
 
                 console.log(`Successfully got basic info for node ${nodeUuid}`);
-                
+
                 // Use query-node-tree to get complete structure with child nodes
                 const nodeTree = await this.getNodeWithChildren(nodeUuid);
                 if (nodeTree) {
@@ -934,7 +878,7 @@ export class PrefabTools implements ToolExecutor {
             const targetNode = this.findNodeInTree(tree, nodeUuid);
             if (targetNode) {
                 console.log(`Found node ${nodeUuid} in scene tree, child count: ${targetNode.children ? targetNode.children.length : 0}`);
-                
+
                 // Enhance node tree, get correct component info for each node
                 const enhancedTree = await this.enhanceTreeWithMCPComponents(targetNode);
                 return enhancedTree;
@@ -950,7 +894,7 @@ export class PrefabTools implements ToolExecutor {
     // Recursively find node with specified UUID in the node tree
     private findNodeInTree(node: any, targetUuid: string): any {
         if (!node) return null;
-        
+
         // Check current node
         if (node.uuid === targetUuid || node.value?.uuid === targetUuid) {
             return node;
@@ -994,7 +938,7 @@ export class PrefabTools implements ToolExecutor {
                     "id": Date.now()
                 })
             });
-            
+
             const mcpResult = await response.json();
             if (mcpResult.result?.content?.[0]?.text) {
                 const componentData = JSON.parse(mcpResult.result.content[0].text);
@@ -1045,10 +989,10 @@ export class PrefabTools implements ToolExecutor {
     private isValidNodeData(nodeData: any): boolean {
         if (!nodeData) return false;
         if (typeof nodeData !== 'object') return false;
-        
+
         // Check basic properties - compatible with query-node-tree data format
-        return nodeData.hasOwnProperty('uuid') || 
-               nodeData.hasOwnProperty('name') || 
+        return nodeData.hasOwnProperty('uuid') ||
+               nodeData.hasOwnProperty('name') ||
                nodeData.hasOwnProperty('__type__') ||
                (nodeData.value && (
                    nodeData.value.hasOwnProperty('uuid') ||
@@ -1060,33 +1004,33 @@ export class PrefabTools implements ToolExecutor {
     // Unified method to extract child node UUID
     private extractChildUuid(childRef: any): string | null {
         if (!childRef) return null;
-        
+
         // Method 1: Direct string
         if (typeof childRef === 'string') {
             return childRef;
         }
-        
+
         // Method 2: value property contains string
         if (childRef.value && typeof childRef.value === 'string') {
             return childRef.value;
         }
-        
+
         // Method 3: value.uuid property
         if (childRef.value && childRef.value.uuid) {
             return childRef.value.uuid;
         }
-        
+
         // Method 4: Direct uuid property
         if (childRef.uuid) {
             return childRef.uuid;
         }
-        
+
         // Method 5: __id__ reference - requires special handling
         if (childRef.__id__ !== undefined) {
             console.log(`Found __id__ reference: ${childRef.__id__}, may need to look up from data structure`);
             return null; // Return null for now, reference resolution logic can be added later
         }
-        
+
         console.warn('Unable to extract child node UUID:', JSON.stringify(childRef));
         return null;
     }
@@ -1094,7 +1038,7 @@ export class PrefabTools implements ToolExecutor {
     // Get child node data that needs processing
     private getChildrenToProcess(nodeData: any): any[] {
         const children: any[] = [];
-        
+
         // Method 1: Get directly from children array (data returned from query-node-tree)
         if (nodeData.children && Array.isArray(nodeData.children)) {
             console.log(`Getting child nodes from children array, count: ${nodeData.children.length}`);
@@ -1110,7 +1054,7 @@ export class PrefabTools implements ToolExecutor {
         } else {
             console.log('Node has no children or children array is empty');
         }
-        
+
         return children;
     }
 
@@ -1156,7 +1100,7 @@ export class PrefabTools implements ToolExecutor {
         // Recursively process nodes and components
         const processNode = (node: any, parentId: number = 0): number => {
             const nodeId = idCounter++;
-            
+
             // Create node object
             const processedNode = {
                 "__type__": "cc.Node",
@@ -1283,7 +1227,7 @@ export class PrefabTools implements ToolExecutor {
                 // Use Editor API to save prefab file
                 const prefabContent = JSON.stringify(prefabData, null, 2);
                 const metaContent = JSON.stringify(metaData, null, 2);
-                
+
                 // Try using a more reliable save method
                 this.saveAssetFile(prefabPath, prefabContent).then(() => {
                     // Then create meta file
@@ -1392,7 +1336,7 @@ export class PrefabTools implements ToolExecutor {
         // Extract name from prefabPath
         const prefabPath = args.prefabPath;
         const prefabName = prefabPath.split('/').pop()?.replace('.prefab', '') || 'NewPrefab';
-        
+
         // Call the original createPrefab method
         return await this.createPrefab({
             nodeUuid: args.nodeUuid,
@@ -1419,7 +1363,7 @@ export class PrefabTools implements ToolExecutor {
                         try {
                             const prefabData = JSON.parse(content);
                             const validationResult = this.validatePrefabFormat(prefabData);
-                            
+
                             resolve({
                                 success: true,
                                 data: {
@@ -1505,7 +1449,7 @@ export class PrefabTools implements ToolExecutor {
         return new Promise(async (resolve) => {
             try {
                 const { sourcePrefabPath, targetPrefabPath, newPrefabName } = args;
-                
+
                 // Read source prefab
                 const sourceInfo = await this.getPrefabInfo(sourcePrefabPath);
                 if (!sourceInfo.success) {
@@ -1528,13 +1472,13 @@ export class PrefabTools implements ToolExecutor {
 
                 // Generate new UUID
                 const newUuid = this.generateUUID();
-                
+
                 // Modify prefab data
                 const modifiedData = this.modifyPrefabForDuplication(sourceContent.data, newPrefabName, newUuid);
-                
+
                 // Create new meta data
                 const newMetaData = this.createMetaData(newPrefabName || 'DuplicatedPrefab', newUuid);
-                
+
                 // Prefab copy function temporarily disabled due to complex serialization format
                 resolve({
                     success: false,
@@ -1569,7 +1513,7 @@ export class PrefabTools implements ToolExecutor {
     private modifyPrefabForDuplication(prefabData: any[], newName: string, newUuid: string): any[] {
         // Modify prefab data to create a copy
         const modifiedData = [...prefabData];
-        
+
         // Modify first element (prefab asset)
         if (modifiedData[0] && modifiedData[0].__type__ === 'cc.Prefab') {
             modifiedData[0]._name = newName || 'DuplicatedPrefab';
@@ -1577,7 +1521,7 @@ export class PrefabTools implements ToolExecutor {
 
         // Update all UUID references (simplified version)
         // In production, more complex UUID mapping may be needed
-        
+
         return modifiedData;
     }
 
@@ -1651,7 +1595,7 @@ export class PrefabTools implements ToolExecutor {
      */
     private async createStandardPrefabContent(nodeData: any, prefabName: string, prefabUuid: string, includeChildren: boolean, includeComponents: boolean): Promise<any[]> {
         console.log('Starting to create engine-standard prefab content...');
-        
+
         const prefabData: any[] = [];
         let currentId = 0;
 
@@ -1686,7 +1630,7 @@ export class PrefabTools implements ToolExecutor {
 
         console.log(`Prefab content creation complete, total ${prefabData.length} objects`);
         console.log('Node fileId mapping:', Array.from(context.nodeFileIds.entries()));
-        
+
         return prefabData;
     }
 
@@ -1694,13 +1638,13 @@ export class PrefabTools implements ToolExecutor {
      * Recursively create complete node tree, including all child nodes and corresponding PrefabInfo
      */
     private async createCompleteNodeTree(
-        nodeData: any, 
-        parentNodeIndex: number | null, 
+        nodeData: any,
+        parentNodeIndex: number | null,
         nodeIndex: number,
-        context: { 
-            prefabData: any[], 
-            currentId: number, 
-            prefabAssetIndex: number, 
+        context: {
+            prefabData: any[],
+            currentId: number,
+            prefabAssetIndex: number,
             nodeFileIds: Map<string, string>,
             nodeUuidToIndex: Map<string, number>,
             componentUuidToIndex: Map<string, number>
@@ -1710,22 +1654,22 @@ export class PrefabTools implements ToolExecutor {
         nodeName?: string
     ): Promise<void> {
         const { prefabData } = context;
-        
+
         // Create node object
         const node = this.createEngineStandardNode(nodeData, parentNodeIndex, nodeName);
-        
+
         // Ensure node is at the specified index position
         while (prefabData.length <= nodeIndex) {
             prefabData.push(null);
         }
         console.log(`Setting node to index ${nodeIndex}: ${node._name}, _parent:`, node._parent, `_children count: ${node._children.length}`);
         prefabData[nodeIndex] = node;
-        
+
         // Generate fileId for current node and record UUID to index mapping
         const nodeUuid = this.extractNodeUuid(nodeData);
         const fileId = nodeUuid || this.generateFileId();
         context.nodeFileIds.set(nodeIndex.toString(), fileId);
-        
+
         // Record node UUID to index mapping
         if (nodeUuid) {
             context.nodeUuidToIndex.set(nodeUuid, nodeIndex);
@@ -1736,7 +1680,7 @@ export class PrefabTools implements ToolExecutor {
         const childrenToProcess = this.getChildrenToProcess(nodeData);
         if (includeChildren && childrenToProcess.length > 0) {
             console.log(`Processing ${childrenToProcess.length} child nodes of ${node._name}`);
-            
+
             // Assign index for each child node
             const childIndices: number[] = [];
             console.log(`Preparing to assign indices for ${childrenToProcess.length} child nodes, current ID: ${context.currentId}`);
@@ -1754,9 +1698,9 @@ export class PrefabTools implements ToolExecutor {
                 const childData = childrenToProcess[i];
                 const childIndex = childIndices[i];
                 await this.createCompleteNodeTree(
-                    childData, 
-                    nodeIndex, 
-                    childIndex, 
+                    childData,
+                    nodeIndex,
+                    childIndex,
                     context,
                     includeChildren,
                     includeComponents,
@@ -1768,37 +1712,37 @@ export class PrefabTools implements ToolExecutor {
         // Then process components
         if (includeComponents && nodeData.components && Array.isArray(nodeData.components)) {
             console.log(`Processing ${nodeData.components.length} components of ${node._name}`);
-            
+
             const componentIndices: number[] = [];
             for (const component of nodeData.components) {
                 const componentIndex = context.currentId++;
                 componentIndices.push(componentIndex);
                 node._components.push({ "__id__": componentIndex });
-                
+
                 // Record component UUID to index mapping
                 const componentUuid = component.uuid || (component.value && component.value.uuid);
                 if (componentUuid) {
                     context.componentUuidToIndex.set(componentUuid, componentIndex);
                     console.log(`Recording component UUID mapping: ${componentUuid} -> ${componentIndex}`);
                 }
-                
+
                 // Create component object, pass context to handle references
                 const componentObj = this.createComponentObject(component, nodeIndex, context);
                 prefabData[componentIndex] = componentObj;
-                
+
                 // Create CompPrefabInfo for component
                 const compPrefabInfoIndex = context.currentId++;
                 prefabData[compPrefabInfoIndex] = {
                     "__type__": "cc.CompPrefabInfo",
                     "fileId": this.generateFileId()
                 };
-                
+
                 // If component object has __prefab property, set reference
                 if (componentObj && typeof componentObj === 'object') {
                     componentObj.__prefab = { "__id__": compPrefabInfoIndex };
                 }
             }
-            
+
             console.log(`Node ${node._name} added ${componentIndices.length} components`);
         }
 
@@ -1806,7 +1750,7 @@ export class PrefabTools implements ToolExecutor {
         // Create PrefabInfo for current node
         const prefabInfoIndex = context.currentId++;
         node._prefab = { "__id__": prefabInfoIndex };
-        
+
         const prefabInfo: any = {
             "__type__": "cc.PrefabInfo",
             "root": { "__id__": 1 },
@@ -1815,7 +1759,7 @@ export class PrefabTools implements ToolExecutor {
             "targetOverrides": null,
             "nestedPrefabInstanceRoots": null
         };
-        
+
         // Special handling for root node
         if (nodeIndex === 1) {
             // Root node has no instance, but may have targetOverrides
@@ -1824,7 +1768,7 @@ export class PrefabTools implements ToolExecutor {
             // Child nodes usually have instance as null
             prefabInfo.instance = null;
         }
-        
+
         prefabData[prefabInfoIndex] = prefabInfo;
         context.currentId = prefabInfoIndex + 1;
     }
@@ -1836,58 +1780,58 @@ export class PrefabTools implements ToolExecutor {
      */
     private uuidToCompressedId(uuid: string): string {
         const BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
-        
+
         // Remove hyphens and convert to lowercase
         const cleanUuid = uuid.replace(/-/g, '').toLowerCase();
-        
+
         // Ensure UUID is valid
         if (cleanUuid.length !== 32) {
             return uuid; // Return original value if not a valid UUID
         }
-        
+
         // Cocos Creator compression: first 5 chars unchanged, remaining 27 chars compressed to 18 chars
         let result = cleanUuid.substring(0, 5);
-        
+
         // Remaining 27 chars need to be compressed to 18 chars
         const remainder = cleanUuid.substring(5);
-        
+
         // Compress every 3 hex chars into 2 chars
         for (let i = 0; i < remainder.length; i += 3) {
             const hex1 = remainder[i] || '0';
             const hex2 = remainder[i + 1] || '0';
             const hex3 = remainder[i + 2] || '0';
-            
+
             // Convert 3 hex chars (12 bits) to 2 base64 chars
             const value = parseInt(hex1 + hex2 + hex3, 16);
-            
+
             // Split 12 bits into two 6-bit parts
             const high6 = (value >> 6) & 63;
             const low6 = value & 63;
-            
+
             result += BASE64_KEYS[high6] + BASE64_KEYS[low6];
         }
-        
+
         return result;
     }
 
     /**
      * Create component object
      */
-    private createComponentObject(componentData: any, nodeIndex: number, context?: { 
+    private createComponentObject(componentData: any, nodeIndex: number, context?: {
         nodeUuidToIndex?: Map<string, number>,
         componentUuidToIndex?: Map<string, number>
     }): any {
         let componentType = componentData.type || componentData.__type__ || 'cc.Component';
         const enabled = componentData.enabled !== undefined ? componentData.enabled : true;
-        
+
         // console.log(`Create component object - original type: ${componentType}`);
         // console.log('Complete component data:', JSON.stringify(componentData, null, 2));
-        
+
         // Handle script components - MCP interface already returns correct compressed UUID format
         if (componentType && !componentType.startsWith('cc.')) {
             console.log(`Using script component compressed UUID type: ${componentType}`);
         }
-        
+
         // Basic component structure
         const component: any = {
             "__type__": componentType,
@@ -1897,15 +1841,15 @@ export class PrefabTools implements ToolExecutor {
             "node": { "__id__": nodeIndex },
             "_enabled": enabled
         };
-        
+
         // Set __prefab property placeholder in advance, will be set correctly later
         component.__prefab = null;
-        
+
         // Add type-specific properties
         if (componentType === 'cc.UITransform') {
             const contentSize = componentData.properties?.contentSize?.value || { width: 100, height: 100 };
             const anchorPoint = componentData.properties?.anchorPoint?.value || { x: 0.5, y: 0.5 };
-            
+
             component._contentSize = {
                 "__type__": "cc.Size",
                 "width": contentSize.width,
@@ -1924,7 +1868,7 @@ export class PrefabTools implements ToolExecutor {
             } else {
                 component._spriteFrame = null;
             }
-            
+
             component._type = componentData.properties?._type?.value ?? 0;
             component._fillType = componentData.properties?._fillType?.value ?? 0;
             component._sizeMode = componentData.properties?._sizeMode?.value ?? 1;
@@ -1933,7 +1877,7 @@ export class PrefabTools implements ToolExecutor {
             component._fillRange = componentData.properties?._fillRange?.value ?? 0;
             component._isTrimmedMode = componentData.properties?._isTrimmedMode?.value ?? true;
             component._useGrayscale = componentData.properties?._useGrayscale?.value ?? false;
-            
+
             // Debug: print all Sprite component properties (commented out)
             // console.log('Sprite component properties:', JSON.stringify(componentData.properties, null, 2));
             component._atlas = null;
@@ -1982,11 +1926,11 @@ export class PrefabTools implements ToolExecutor {
         } else if (componentData.properties) {
             // Process all component properties (including built-in and custom script components)
             for (const [key, value] of Object.entries(componentData.properties)) {
-                if (key === 'node' || key === 'enabled' || key === '__type__' || 
+                if (key === 'node' || key === 'enabled' || key === '__type__' ||
                     key === 'uuid' || key === 'name' || key === '__scriptAsset' || key === '_objFlags') {
                     continue; // Skip these special properties, including _objFlags
                 }
-                
+
                 // Properties starting with underscore need special handling
                 if (key.startsWith('_')) {
                     // Ensure property name stays as-is (including underscore)
@@ -2003,19 +1947,19 @@ export class PrefabTools implements ToolExecutor {
                 }
             }
         }
-        
+
         // Ensure _id is at the last position
         const _id = component._id || "";
         delete component._id;
         component._id = _id;
-        
+
         return component;
     }
 
     /**
      * Process component property values, ensure format matches manually created prefab
      */
-    private processComponentProperty(propData: any, context?: { 
+    private processComponentProperty(propData: any, context?: {
         nodeUuidToIndex?: Map<string, number>,
         componentUuidToIndex?: Map<string, number>
     }): any {
@@ -2052,8 +1996,8 @@ export class PrefabTools implements ToolExecutor {
 
         // Handle asset references (prefab, texture, spriteFrame, etc.)
         if (value?.uuid && (
-            type === 'cc.Prefab' || 
-            type === 'cc.Texture2D' || 
+            type === 'cc.Prefab' ||
+            type === 'cc.Texture2D' ||
             type === 'cc.SpriteFrame' ||
             type === 'cc.Material' ||
             type === 'cc.AnimationClip' ||
@@ -2070,10 +2014,10 @@ export class PrefabTools implements ToolExecutor {
         }
 
         // Process component references (including specific types like cc.Label, cc.Button, etc.)
-        if (value?.uuid && (type === 'cc.Component' || 
-            type === 'cc.Label' || type === 'cc.Button' || type === 'cc.Sprite' || 
-            type === 'cc.UITransform' || type === 'cc.RigidBody2D' || 
-            type === 'cc.BoxCollider2D' || type === 'cc.Animation' || 
+        if (value?.uuid && (type === 'cc.Component' ||
+            type === 'cc.Label' || type === 'cc.Button' || type === 'cc.Sprite' ||
+            type === 'cc.UITransform' || type === 'cc.RigidBody2D' ||
+            type === 'cc.BoxCollider2D' || type === 'cc.Animation' ||
             type === 'cc.AudioSource' || (type?.startsWith('cc.') && !type.includes('@')))) {
             // In prefab, component references also need to be converted to __id__ form
             if (context?.componentUuidToIndex && context.componentUuidToIndex.has(value.uuid)) {
@@ -2107,7 +2051,7 @@ export class PrefabTools implements ToolExecutor {
                 };
             } else if (type === 'cc.Vec2') {
                 return {
-                    "__type__": "cc.Vec2", 
+                    "__type__": "cc.Vec2",
                     "x": Number(value.x) || 0,
                     "y": Number(value.y) || 0
                 };
@@ -2139,7 +2083,7 @@ export class PrefabTools implements ToolExecutor {
                     return null;
                 }).filter(item => item !== null);
             }
-            
+
             // Asset array
             if (propData.elementTypeData?.type && propData.elementTypeData.type.startsWith('cc.')) {
                 return value.map(item => {
@@ -2174,14 +2118,14 @@ export class PrefabTools implements ToolExecutor {
     private createEngineStandardNode(nodeData: any, parentNodeIndex: number | null, nodeName?: string): any {
         // Debug: print original node data (commented out)
         // console.log('Original node data:', JSON.stringify(nodeData, null, 2));
-        
+
         // Extract basic node properties
         const getValue = (prop: any) => {
             if (prop?.value !== undefined) return prop.value;
             if (prop !== undefined) return prop;
             return null;
         };
-        
+
         const position = getValue(nodeData.position) || getValue(nodeData.value?.position) || { x: 0, y: 0, z: 0 };
         const rotation = getValue(nodeData.rotation) || getValue(nodeData.value?.rotation) || { x: 0, y: 0, z: 0, w: 1 };
         const scale = getValue(nodeData.scale) || getValue(nodeData.value?.scale) || { x: 1, y: 1, z: 1 };
@@ -2241,7 +2185,7 @@ export class PrefabTools implements ToolExecutor {
      */
     private extractNodeUuid(nodeData: any): string | null {
         if (!nodeData) return null;
-        
+
         // Try multiple ways to get UUID
         const sources = [
             nodeData.uuid,
@@ -2251,13 +2195,13 @@ export class PrefabTools implements ToolExecutor {
             nodeData.id,
             nodeData.value?.id
         ];
-        
+
         for (const source of sources) {
             if (typeof source === 'string' && source.length > 0) {
                 return source;
             }
         }
-        
+
         return null;
     }
 
@@ -2271,7 +2215,7 @@ export class PrefabTools implements ToolExecutor {
             if (prop !== undefined) return prop;
             return null;
         };
-        
+
         const position = getValue(nodeData.position) || getValue(nodeData.value?.position) || { x: 0, y: 0, z: 0 };
         const rotation = getValue(nodeData.rotation) || getValue(nodeData.value?.rotation) || { x: 0, y: 0, z: 0, w: 1 };
         const scale = getValue(nodeData.scale) || getValue(nodeData.value?.scale) || { x: 1, y: 1, z: 1 };
@@ -2439,14 +2383,14 @@ export class PrefabTools implements ToolExecutor {
 
     private async createNodeObject(nodeData: any, parentId: number | null, prefabData: any[], currentId: number): Promise<{ node: any; nextId: number }> {
         const nodeId = currentId++;
-        
+
         // Extract basic node properties - compatible with query-node-tree data format
         const getValue = (prop: any) => {
             if (prop?.value !== undefined) return prop.value;
             if (prop !== undefined) return prop;
             return null;
         };
-        
+
         const position = getValue(nodeData.position) || getValue(nodeData.value?.position) || { x: 0, y: 0, z: 0 };
         const rotation = getValue(nodeData.rotation) || getValue(nodeData.value?.rotation) || { x: 0, y: 0, z: 0, w: 1 };
         const scale = getValue(nodeData.scale) || getValue(nodeData.value?.scale) || { x: 1, y: 1, z: 1 };
@@ -2499,7 +2443,7 @@ export class PrefabTools implements ToolExecutor {
         // Temporarily skip UITransform component to avoid _getDependComponent error
         // Will be dynamically added later via Engine API
         console.log(`Node ${name} temporarily skipping UITransform component to avoid engine dependency error`);
-        
+
         // Process other components (temporarily skipped, focusing on UITransform fix)
         const components = this.extractComponentsFromNode(nodeData);
         if (components.length > 0) {
@@ -2511,25 +2455,25 @@ export class PrefabTools implements ToolExecutor {
         if (childrenToProcess.length > 0) {
             console.log(`=== Processing child nodes ===`);
             console.log(`Node ${name} contains ${childrenToProcess.length} child nodes`);
-            
+
             for (let i = 0; i < childrenToProcess.length; i++) {
                 const childData = childrenToProcess[i];
                 const childName = childData.name || childData.value?.name || 'Unknown';
                 console.log(`Processing child node ${i + 1}: ${childName}`);
-                
+
                 try {
                     const childId = currentId;
                     node._children.push({ "__id__": childId });
-                    
+
                     // Recursively create child nodes
                     const childResult = await this.createNodeObject(childData, nodeId, prefabData, currentId);
                     prefabData.push(childResult.node);
                     currentId = childResult.nextId;
-                    
+
                     // Child nodes do not need PrefabInfo, only root node needs it
                     // Child node's _prefab should be set to null
                     childResult.node._prefab = null;
-                    
+
                     console.log(`Successfully added child node: ${childName}`);
                 } catch (error) {
                     console.error(`Error processing child node ${childName}:`, error);
@@ -2543,7 +2487,7 @@ export class PrefabTools implements ToolExecutor {
     // Extract component info from node data
     private extractComponentsFromNode(nodeData: any): any[] {
         const components: any[] = [];
-        
+
         // Try to get component data from different locations
         const componentSources = [
             nodeData.__comps__,
@@ -2551,26 +2495,26 @@ export class PrefabTools implements ToolExecutor {
             nodeData.value?.__comps__,
             nodeData.value?.components
         ];
-        
+
         for (const source of componentSources) {
             if (Array.isArray(source)) {
                 components.push(...source.filter(comp => comp && (comp.__type__ || comp.type)));
                 break; // Exit once valid component array is found
             }
         }
-        
+
         return components;
     }
-    
+
     // Create standard component object
     private createStandardComponentObject(componentData: any, nodeId: number, prefabInfoId: number): any {
         const componentType = componentData.__type__ || componentData.type;
-        
+
         if (!componentType) {
             console.warn('Component missing type info:', componentData);
             return null;
         }
-        
+
         // Basic component structure - based on official prefab format
         const component: any = {
             "__type__": componentType,
@@ -2584,16 +2528,16 @@ export class PrefabTools implements ToolExecutor {
                 "__id__": prefabInfoId
             }
         };
-        
+
         // Add type-specific properties
         this.addComponentSpecificProperties(component, componentData, componentType);
-        
+
         // Add _id property
         component._id = "";
-        
+
         return component;
     }
-    
+
     // Add component-specific properties
     private addComponentSpecificProperties(component: any, componentData: any, componentType: string): void {
         switch (componentType) {
@@ -2615,7 +2559,7 @@ export class PrefabTools implements ToolExecutor {
                 break;
         }
     }
-    
+
     // UITransform component properties
     private addUITransformProperties(component: any, componentData: any): void {
         component._contentSize = this.createSizeObject(
@@ -2625,7 +2569,7 @@ export class PrefabTools implements ToolExecutor {
             this.getComponentPropertyValue(componentData, 'anchorPoint', { x: 0.5, y: 0.5 })
         );
     }
-    
+
     // Sprite component properties
     private addSpriteProperties(component: any, componentData: any): void {
         component._visFlags = 0;
@@ -2646,7 +2590,7 @@ export class PrefabTools implements ToolExecutor {
         component._useGrayscale = false;
         component._atlas = null;
     }
-    
+
     // Label component properties
     private addLabelProperties(component: any, componentData: any): void {
         component._visFlags = 0;
@@ -2673,7 +2617,7 @@ export class PrefabTools implements ToolExecutor {
         component._underlineHeight = 2;
         component._cacheMode = 0;
     }
-    
+
     // Button component properties
     private addButtonProperties(component: any, componentData: any): void {
         component.clickEvents = [];
@@ -2686,12 +2630,12 @@ export class PrefabTools implements ToolExecutor {
         component._duration = 0.1;
         component._zoomScale = 1.2;
     }
-    
+
     // Add common properties
     private addGenericProperties(component: any, componentData: any): void {
         // Only copy safe, known properties
         const safeProperties = ['enabled', 'color', 'string', 'fontSize', 'spriteFrame', 'type', 'sizeMode'];
-        
+
         for (const prop of safeProperties) {
             if (componentData.hasOwnProperty(prop)) {
                 const value = this.getComponentPropertyValue(componentData, prop);
@@ -2701,7 +2645,7 @@ export class PrefabTools implements ToolExecutor {
             }
         }
     }
-    
+
     // Create Vec2 object
     private createVec2Object(data: any): any {
         return {
@@ -2710,7 +2654,7 @@ export class PrefabTools implements ToolExecutor {
             "y": data?.y || 0
         };
     }
-    
+
     // Create Vec3 object
     private createVec3Object(data: any): any {
         return {
@@ -2720,7 +2664,7 @@ export class PrefabTools implements ToolExecutor {
             "z": data?.z || 0
         };
     }
-    
+
     // Create Size object
     private createSizeObject(data: any): any {
         return {
@@ -2729,7 +2673,7 @@ export class PrefabTools implements ToolExecutor {
             "height": data?.height || 100
         };
     }
-    
+
     // Create Color object
     private createColorObject(data: any): any {
         return {
@@ -2747,12 +2691,12 @@ export class PrefabTools implements ToolExecutor {
         if (key.startsWith('__') || key === '_enabled' || key === 'node' || key === 'enabled') {
             return false;
         }
-        
+
         // Skip function and undefined values
         if (typeof value === 'function' || value === undefined) {
             return false;
         }
-        
+
         return true;
     }
 
@@ -2763,37 +2707,37 @@ export class PrefabTools implements ToolExecutor {
         if (componentData[propertyName] !== undefined) {
             return this.extractValue(componentData[propertyName]);
         }
-        
+
         // Try to get from value property
         if (componentData.value && componentData.value[propertyName] !== undefined) {
             return this.extractValue(componentData.value[propertyName]);
         }
-        
+
         // Try property name with underscore prefix
         const prefixedName = `_${propertyName}`;
         if (componentData[prefixedName] !== undefined) {
             return this.extractValue(componentData[prefixedName]);
         }
-        
+
         return defaultValue;
     }
-    
+
     // Extract property value
     private extractValue(data: any): any {
         if (data === null || data === undefined) {
             return data;
         }
-        
+
         // If value property exists, use it first
         if (typeof data === 'object' && data.hasOwnProperty('value')) {
             return data.value;
         }
-        
+
         // If it is a reference object, keep as-is
         if (typeof data === 'object' && (data.__id__ !== undefined || data.__uuid__ !== undefined)) {
             return data;
         }
-        
+
         return data;
     }
 

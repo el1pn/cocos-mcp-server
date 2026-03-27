@@ -4,120 +4,64 @@ export class SceneTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
-                name: 'get_current_scene',
-                description: 'Get current scene information',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'get_scene_list',
-                description: 'Get all scenes in the project',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'open_scene',
-                description: 'Open a scene by path',
+                name: 'scene_management',
+                description: 'Manage scenes in the Cocos Creator project. Available actions: get_current (get current scene info), get_list (list all scenes), open (open a scene by path), save (save current scene), save_as (save scene as new file), create (create a new scene), close (close current scene), get_hierarchy (get scene node hierarchy).',
                 inputSchema: {
                     type: 'object',
                     properties: {
+                        action: {
+                            type: 'string',
+                            enum: ['get_current', 'get_list', 'open', 'save', 'save_as', 'create', 'close', 'get_hierarchy'],
+                            description: 'The scene management action to perform'
+                        },
                         scenePath: {
                             type: 'string',
-                            description: 'The scene file path'
-                        }
-                    },
-                    required: ['scenePath']
-                }
-            },
-            {
-                name: 'save_scene',
-                description: 'Save current scene',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'create_scene',
-                description: 'Create a new scene asset',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'The scene file path (required for action: "open")'
+                        },
                         sceneName: {
                             type: 'string',
-                            description: 'Name of the new scene'
+                            description: 'Name of the new scene (required for action: "create")'
                         },
                         savePath: {
                             type: 'string',
-                            description: 'Path to save the scene (e.g., db://assets/scenes/NewScene.scene)'
-                        }
-                    },
-                    required: ['sceneName', 'savePath']
-                }
-            },
-            {
-                name: 'save_scene_as',
-                description: 'Save scene as new file',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'Path to save the scene, e.g. db://assets/scenes/NewScene.scene (required for action: "create")'
+                        },
                         path: {
                             type: 'string',
-                            description: 'Path to save the scene'
-                        }
-                    },
-                    required: ['path']
-                }
-            },
-            {
-                name: 'close_scene',
-                description: 'Close current scene',
-                inputSchema: {
-                    type: 'object',
-                    properties: {}
-                }
-            },
-            {
-                name: 'get_scene_hierarchy',
-                description: 'Get the complete hierarchy of current scene',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
+                            description: 'Path to save the scene (required for action: "save_as")'
+                        },
                         includeComponents: {
                             type: 'boolean',
-                            description: 'Include component information',
+                            description: 'Include component information (optional for action: "get_hierarchy", default: false)',
                             default: false
                         }
-                    }
+                    },
+                    required: ['action']
                 }
             }
         ];
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
-        switch (toolName) {
-            case 'get_current_scene':
+        switch (args.action) {
+            case 'get_current':
                 return await this.getCurrentScene();
-            case 'get_scene_list':
+            case 'get_list':
                 return await this.getSceneList();
-            case 'open_scene':
+            case 'open':
                 return await this.openScene(args.scenePath);
-            case 'save_scene':
+            case 'save':
                 return await this.saveScene();
-            case 'create_scene':
+            case 'create':
                 return await this.createScene(args.sceneName, args.savePath);
-            case 'save_scene_as':
+            case 'save_as':
                 return await this.saveSceneAs(args.path);
-            case 'close_scene':
+            case 'close':
                 return await this.closeScene();
-            case 'get_scene_hierarchy':
+            case 'get_hierarchy':
                 return await this.getSceneHierarchy(args.includeComponents);
             default:
-                throw new Error(`Unknown tool: ${toolName}`);
+                throw new Error(`Unknown action: ${args.action}`);
         }
     }
 
@@ -146,7 +90,7 @@ export class SceneTools implements ToolExecutor {
                     method: 'getCurrentSceneInfo',
                     args: []
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -181,7 +125,7 @@ export class SceneTools implements ToolExecutor {
                 if (!uuid) {
                     throw new Error('Scene not found');
                 }
-                
+
                 // Use the correct scene API to open scene (requires UUID)
                 return Editor.Message.request('scene', 'open-scene', uuid);
             }).then(() => {
@@ -206,7 +150,7 @@ export class SceneTools implements ToolExecutor {
         return new Promise((resolve) => {
             // Ensure path ends with .scene
             const fullPath = savePath.endsWith('.scene') ? savePath : `${savePath}/${sceneName}.scene`;
-            
+
             // Use the correct Cocos Creator 3.8 scene format
             const sceneContent = JSON.stringify([
                 {
@@ -362,7 +306,7 @@ export class SceneTools implements ToolExecutor {
                     "_depth": 8
                 }
             ], null, 2);
-            
+
             Editor.Message.request('asset-db', 'create-asset', fullPath, sceneContent).then((result: any) => {
                 // Verify scene creation by checking if it exists
                 this.getSceneList().then((sceneList) => {
@@ -415,7 +359,7 @@ export class SceneTools implements ToolExecutor {
                     method: 'getSceneHierarchy',
                     args: [includeComponents]
                 };
-                
+
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     resolve(result);
                 }).catch((err2: Error) => {
@@ -442,7 +386,7 @@ export class SceneTools implements ToolExecutor {
         }
 
         if (node.children) {
-            nodeInfo.children = node.children.map((child: any) => 
+            nodeInfo.children = node.children.map((child: any) =>
                 this.buildHierarchy(child, includeComponents)
             );
         }
