@@ -269,10 +269,6 @@ module.exports = Editor.Panel.define({
                         return categoryKey ? t(categoryKey) : category;
                     };
 
-                    watch(settings, () => {
-                        settingsChanged.value = true;
-                    }, { deep: true });
-
                     onMounted(async () => {
                         await loadToolManagerState();
 
@@ -294,6 +290,11 @@ module.exports = Editor.Panel.define({
                             console.error('[Vue App] Failed to get server status:', error);
                             console.log('[Vue App] Using default server settings');
                         }
+
+                        // Watch sau khi load xong để tránh trigger settingsChanged khi load
+                        watch(settings, () => {
+                            settingsChanged.value = true;
+                        }, { deep: true });
 
                         setInterval(async () => {
                             try {

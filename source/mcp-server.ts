@@ -303,7 +303,13 @@ export class MCPServer {
                         serverInfo: {
                             name: 'cocos-mcp-server',
                             version: '1.0.0'
-                        }
+                        },
+                        instructions: 'You are connected to a running Cocos Creator editor via MCP. ' +
+                            'ALWAYS use MCP tools for ANY Cocos Creator operation — including scene, node, component, prefab, asset, project, and editor tasks. ' +
+                            'NEVER directly edit .scene, .prefab, .meta, or other Cocos Creator data files. These files have complex internal formats (UUIDs, references, indices) that break easily when edited manually, and direct edits will be out of sync with the running editor. ' +
+                            'The ONLY files you should edit directly are TypeScript/JavaScript source code files (.ts, .js) such as game scripts and components. For everything else, use MCP tools. ' +
+                            'When the user asks about Cocos Creator game development, always query the editor for real-time data (scene tree, node properties, asset lists) instead of guessing. ' +
+                            'Key tools: scene_management (open/save/list scenes), node_query (find nodes), node_lifecycle (create/delete nodes), node_transform (position/rotation/scale), component_manage (add/remove components), component_query (inspect components), set_component_property (modify properties), prefab_lifecycle (create prefabs), prefab_instance (instantiate prefabs), asset_query (find assets), project_manage (run/build project), debug_console (read logs).'
                     };
                     break;
                 default:

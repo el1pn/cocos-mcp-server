@@ -33,20 +33,24 @@
             <h3>{{ t('settings') }}</h3>
             <ui-prop>
                 <ui-label slot="label">{{ t('port') }}</ui-label>
-                <ui-num-input slot="content" v-model="settings.port" :min="1024" :max="65535" :step="1" :disabled="serverRunning">
+                <ui-num-input slot="content" :value="settings.port" :min="1024" :max="65535" :step="1" :disabled="serverRunning"
+                    @confirm="(event) => { settings.port = Number(event.target.value); }">
                 </ui-num-input>
             </ui-prop>
             <ui-prop>
                 <ui-label slot="label">{{ t('auto_start') }}</ui-label>
-                <ui-checkbox slot="content" v-model="settings.autoStart"></ui-checkbox>
+                <ui-checkbox slot="content" :value="settings.autoStart"
+                    @confirm="(event) => { settings.autoStart = Boolean(event.target.value); }"></ui-checkbox>
             </ui-prop>
             <ui-prop>
                 <ui-label slot="label">{{ t('debug_log') }}</ui-label>
-                <ui-checkbox slot="content" v-model="settings.debugLog"></ui-checkbox>
+                <ui-checkbox slot="content" :value="settings.debugLog"
+                    @confirm="(event) => { settings.debugLog = Boolean(event.target.value); }"></ui-checkbox>
             </ui-prop>
             <ui-prop>
                 <ui-label slot="label">{{ t('max_connections') }}</ui-label>
-                <ui-num-input slot="content" v-model="settings.maxConnections" :min="1" :max="100" :step="1">
+                <ui-num-input slot="content" :value="settings.maxConnections" :min="1" :max="100" :step="1"
+                    @confirm="(event) => { settings.maxConnections = Number(event.target.value); }">
                 </ui-num-input>
             </ui-prop>
         </section>
