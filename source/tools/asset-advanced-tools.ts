@@ -1,4 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import * as fs from 'fs';
+import * as path from 'path';
 
 export class AssetAdvancedTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -42,6 +44,16 @@ export class AssetAdvancedTools implements ToolExecutor {
                             items: { type: 'string' },
                             description: 'Directories to exclude from scan (used by: get_unused)',
                             default: []
+                        },
+                        maxResults: {
+                            type: 'number',
+                            description: 'Maximum number of unused assets to return (used by: get_unused). Default: 50',
+                            default: 50
+                        },
+                        groupByFolder: {
+                            type: 'boolean',
+                            description: 'Group results by folder with counts instead of listing every file (used by: get_unused). Default: false',
+                            default: false
                         }
                     },
                     required: ['action']
@@ -131,7 +143,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                     case 'get_dependencies':
                         return await this.getAssetDependencies(args.urlOrUUID, args.direction);
                     case 'get_unused':
-                        return await this.getUnusedAssets(args.directory, args.excludeDirectories);
+                        return await this.getUnusedAssets(args.directory, args.excludeDirectories, args.maxResults, args.groupByFolder);
                     default:
                         throw new Error(`Unknown action for asset_advanced: ${args.action}`);
                 }
@@ -398,23 +410,282 @@ export class AssetAdvancedTools implements ToolExecutor {
     }
 
     private async getAssetDependencies(urlOrUUID: string, direction: string = 'dependencies'): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: This would require scene analysis or additional APIs not available in current documentation
-            resolve({
-                success: false,
-                error: 'Asset dependency analysis requires additional APIs not available in current Cocos Creator MCP implementation. Consider using the Editor UI for dependency analysis.'
-            });
-        });
+        try {
+            // Resolve asset UUID and URL
+            let assetUuid: string;
+            let assetUrl: string;
+
+            if (urlOrUUID.startsWith('db://')) {
+                assetUrl = urlOrUUID;
+                const info = await Editor.Message.request('asset-db', 'query-asset-info', urlOrUUID);
+                if (!info?.uuid) return { success: false, error: `Asset not found: ${urlOrUUID}` };
+                assetUuid = info.uuid;
+            } else {
+                assetUuid = urlOrUUID;
+                const url = await Editor.Message.request('asset-db', 'query-url', urlOrUUID);
+                if (!url) return { success: false, error: `Asset not found: ${urlOrUUID}` };
+                assetUrl = url;
+            }
+
+            const projectPath = Editor.Project.path;
+            const assetsPath = path.join(projectPath, 'assets');
+
+            // Collect all UUIDs for this asset (main + sub-assets from .meta)
+            const allAssetUuids = new Set<string>([assetUuid]);
+            try {
+                const fsPath = await Editor.Message.request('asset-db', 'query-path', assetUrl);
+                if (fsPath) {
+                    const metaPath = fsPath + '.meta';
+                    if (fs.existsSync(metaPath)) {
+                        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf8'));
+                        this.collectSubUuids(meta.subMetas, allAssetUuids);
+                    }
+                }
+            } catch { /* ignore meta read errors */ }
+
+            const dependencies: Array<{ uuid: string; url: string }> = [];
+            const dependents: Array<{ url: string }> = [];
+
+            // Find dependencies: assets this file references via __uuid__ and __type__
+            if (direction === 'dependencies' || direction === 'both') {
+                try {
+                    const fsPath = await Editor.Message.request('asset-db', 'query-path', assetUrl);
+                    if (fsPath && fs.existsSync(fsPath)) {
+                        const content = fs.readFileSync(fsPath, 'utf8');
+                        const seen = new Set<string>();
+
+                        // Extract __uuid__ references
+                        const refUuids = this.extractUuidsFromContent(content);
+                        for (const ref of refUuids) {
+                            const baseUuid = ref.split('@')[0];
+                            if (seen.has(baseUuid) || allAssetUuids.has(baseUuid)) continue;
+                            seen.add(baseUuid);
+
+                            try {
+                                const refUrl = await Editor.Message.request('asset-db', 'query-url', baseUuid);
+                                dependencies.push({ uuid: baseUuid, url: refUrl || 'unresolved' });
+                            } catch {
+                                dependencies.push({ uuid: baseUuid, url: 'unresolved' });
+                            }
+                        }
+
+                        // Extract __type__ references (custom script components use compressed UUIDs)
+                        const typeIds = this.extractTypeIdsFromContent(content);
+                        for (const typeId of typeIds) {
+                            const decompressed = this.decompressUuid(typeId);
+                            if (!decompressed || seen.has(decompressed)) continue;
+                            seen.add(decompressed);
+                            try {
+                                const refUrl = await Editor.Message.request('asset-db', 'query-url', decompressed);
+                                if (refUrl) {
+                                    dependencies.push({ uuid: decompressed, url: refUrl });
+                                }
+                            } catch { /* not a valid script UUID */ }
+                        }
+                    }
+                } catch { /* ignore read errors */ }
+            }
+
+            // Find dependents: serialized files that reference this asset's UUIDs
+            if (direction === 'dependents' || direction === 'both') {
+                // Build search strings: original UUIDs + compressed forms for __type__ matching
+                const searchStrings = new Set<string>(allAssetUuids);
+                for (const uid of allAssetUuids) {
+                    const compressed = this.compressUuid(uid);
+                    if (compressed.length === 22) searchStrings.add(compressed);
+                }
+
+                this.walkSerializedFiles(assetsPath, (filePath, content) => {
+                    for (const str of searchStrings) {
+                        if (content.includes(str)) {
+                            const fileUrl = 'db://' + filePath.substring(projectPath.length + 1);
+                            if (fileUrl !== assetUrl) {
+                                dependents.push({ url: fileUrl });
+                            }
+                            break;
+                        }
+                    }
+                });
+            }
+
+            return {
+                success: true,
+                data: {
+                    asset: { uuid: assetUuid, url: assetUrl, allUuids: Array.from(allAssetUuids) },
+                    dependencies,
+                    dependents,
+                    dependenciesCount: dependencies.length,
+                    dependentsCount: dependents.length,
+                    message: `Found ${dependencies.length} dependencies and ${dependents.length} dependents for ${assetUrl}`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: `Dependency analysis failed: ${err.message}` };
+        }
     }
 
-    private async getUnusedAssets(directory: string = 'db://assets', excludeDirectories: string[] = []): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: This would require comprehensive project analysis
-            resolve({
-                success: false,
-                error: 'Unused asset detection requires comprehensive project analysis not available in current Cocos Creator MCP implementation. Consider using the Editor UI or third-party tools for unused asset detection.'
+    private async getUnusedAssets(directory: string = 'db://assets', excludeDirectories: string[] = [], maxResults: number = 50, groupByFolder: boolean = false): Promise<ToolResponse> {
+        try {
+            const projectPath = Editor.Project.path;
+            const basePath = path.join(projectPath, directory.replace('db://', ''));
+
+            if (!fs.existsSync(basePath)) {
+                return { success: false, error: `Directory not found: ${directory}` };
+            }
+
+            // Step 1: Build UUID -> asset URL map from .meta files
+            // Also build compressed UUID map for __type__ matching (script components)
+            const uuidToUrl = new Map<string, string>();
+            const compressedToUrl = new Map<string, string>();
+            const allAssets: Array<{ url: string; ext: string }> = [];
+
+            this.walkDirectory(basePath, (filePath) => {
+                if (!filePath.endsWith('.meta')) return;
+
+                const assetFsPath = filePath.slice(0, -5); // Remove .meta suffix
+                const assetUrl = 'db://' + assetFsPath.substring(projectPath.length + 1);
+
+                // Check exclude directories
+                for (const excl of excludeDirectories) {
+                    if (assetUrl.startsWith(excl)) return;
+                }
+
+                // Skip if actual asset doesn't exist or is a directory
+                try {
+                    if (!fs.existsSync(assetFsPath) || fs.statSync(assetFsPath).isDirectory()) return;
+                } catch { return; }
+
+                try {
+                    const meta = JSON.parse(fs.readFileSync(filePath, 'utf8'));
+                    const ext = path.extname(assetFsPath).toLowerCase();
+
+                    allAssets.push({ url: assetUrl, ext });
+
+                    // Map main UUID to asset URL
+                    if (meta.uuid) {
+                        uuidToUrl.set(meta.uuid, assetUrl);
+                        const compressed = this.compressUuid(meta.uuid);
+                        if (compressed.length === 22) compressedToUrl.set(compressed, assetUrl);
+                    }
+
+                    // Map sub-asset UUIDs to parent asset URL
+                    const subUuids = new Set<string>();
+                    this.collectSubUuids(meta.subMetas, subUuids);
+                    for (const subUuid of subUuids) {
+                        uuidToUrl.set(subUuid, assetUrl);
+                        const compressed = this.compressUuid(subUuid);
+                        if (compressed.length === 22) compressedToUrl.set(compressed, assetUrl);
+                    }
+                } catch { /* skip unparseable meta files */ }
             });
-        });
+
+            // Step 2: Scan ALL serialized files in entire assets folder (not just target directory)
+            // because scenes/prefabs referencing target assets may be in other folders
+            const assetsPath = path.join(projectPath, 'assets');
+            const referencedUrls = new Set<string>();
+
+            this.walkSerializedFiles(assetsPath, (_filePath, content) => {
+                // Check __uuid__ references (images, prefabs, materials, etc.)
+                const uuids = this.extractUuidsFromContent(content);
+                for (const uuid of uuids) {
+                    const baseUuid = uuid.split('@')[0];
+                    const url = uuidToUrl.get(baseUuid);
+                    if (url) referencedUrls.add(url);
+                }
+
+                // Check __type__ references (script components use compressed UUIDs)
+                const typeIds = this.extractTypeIdsFromContent(content);
+                for (const typeId of typeIds) {
+                    const url = compressedToUrl.get(typeId);
+                    if (url) referencedUrls.add(url);
+                }
+            });
+
+            // Step 3: Find unused assets, separate scripts from other assets
+            const scriptExts = ['.ts', '.js'];
+            const allUnusedAssets: string[] = [];
+            const allUnusedScripts: string[] = [];
+
+            for (const asset of allAssets) {
+                if (!referencedUrls.has(asset.url)) {
+                    if (scriptExts.includes(asset.ext)) {
+                        allUnusedScripts.push(asset.url);
+                    } else {
+                        allUnusedAssets.push(asset.url);
+                    }
+                }
+            }
+
+            const totalUnusedAssets = allUnusedAssets.length;
+            const totalUnusedScripts = allUnusedScripts.length;
+            const limit = Math.max(1, maxResults);
+
+            if (groupByFolder) {
+                // Group by parent folder with counts
+                const folderMap = new Map<string, { assets: number; scripts: number; samples: string[] }>();
+
+                for (const url of allUnusedAssets) {
+                    const folder = url.substring(0, url.lastIndexOf('/'));
+                    const entry = folderMap.get(folder) || { assets: 0, scripts: 0, samples: [] };
+                    entry.assets++;
+                    if (entry.samples.length < 3) entry.samples.push(url.substring(url.lastIndexOf('/') + 1));
+                    folderMap.set(folder, entry);
+                }
+                for (const url of allUnusedScripts) {
+                    const folder = url.substring(0, url.lastIndexOf('/'));
+                    const entry = folderMap.get(folder) || { assets: 0, scripts: 0, samples: [] };
+                    entry.scripts++;
+                    folderMap.set(folder, entry);
+                }
+
+                // Sort by total count descending, limit results
+                const folders = Array.from(folderMap.entries())
+                    .map(([folder, data]) => ({ folder, ...data, total: data.assets + data.scripts }))
+                    .sort((a, b) => b.total - a.total)
+                    .slice(0, limit);
+
+                return {
+                    success: true,
+                    data: {
+                        directory,
+                        totalAssets: allAssets.length,
+                        referencedCount: referencedUrls.size,
+                        unusedCount: totalUnusedAssets + totalUnusedScripts,
+                        unusedAssetCount: totalUnusedAssets,
+                        unusedScriptCount: totalUnusedScripts,
+                        folders,
+                        foldersShown: folders.length,
+                        totalFolders: folderMap.size,
+                        message: `Found ${totalUnusedAssets + totalUnusedScripts} unused items across ${folderMap.size} folders`,
+                        note: 'Assets loaded dynamically (e.g. resources.load) may still appear unused. Review before deleting.'
+                    }
+                };
+            }
+
+            // Flat list with maxResults limit
+            const unusedAssets = allUnusedAssets.sort().slice(0, limit);
+            const unusedScripts = allUnusedScripts.sort().slice(0, limit);
+
+            return {
+                success: true,
+                data: {
+                    directory,
+                    totalAssets: allAssets.length,
+                    referencedCount: referencedUrls.size,
+                    unusedCount: totalUnusedAssets + totalUnusedScripts,
+                    unusedAssets,
+                    unusedScripts,
+                    showing: unusedAssets.length + unusedScripts.length,
+                    totalUnusedAssets,
+                    totalUnusedScripts,
+                    truncated: totalUnusedAssets > limit || totalUnusedScripts > limit,
+                    message: `Found ${totalUnusedAssets} unused assets and ${totalUnusedScripts} unused scripts (showing up to ${limit} each)`,
+                    note: 'Assets loaded dynamically (e.g. resources.load) may still appear unused. Use groupByFolder:true for overview. Review before deleting.'
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: `Unused asset detection failed: ${err.message}` };
+        }
     }
 
     private async compressTextures(directory: string = 'db://assets', format: string = 'auto', quality: number = 0.8): Promise<ToolResponse> {
@@ -523,5 +794,111 @@ export class AssetAdvancedTools implements ToolExecutor {
 
         xml += '</assets>';
         return xml;
+    }
+
+    // --- Helper methods for dependency and unused asset analysis ---
+
+    private extractUuidsFromContent(content: string): string[] {
+        const uuids: string[] = [];
+        const pattern = /"__uuid__"\s*:\s*"([^"]+)"/g;
+        let match;
+        while ((match = pattern.exec(content)) !== null) {
+            uuids.push(match[1]);
+        }
+        return uuids;
+    }
+
+    private collectSubUuids(subMetas: any, uuids: Set<string>): void {
+        if (!subMetas || typeof subMetas !== 'object') return;
+        for (const key of Object.keys(subMetas)) {
+            const sub = subMetas[key];
+            if (sub?.uuid) uuids.add(sub.uuid);
+            if (sub?.subMetas) this.collectSubUuids(sub.subMetas, uuids);
+        }
+    }
+
+    private walkDirectory(dir: string, callback: (filePath: string) => void): void {
+        if (!fs.existsSync(dir)) return;
+        const entries = fs.readdirSync(dir, { withFileTypes: true });
+        for (const entry of entries) {
+            const fullPath = path.join(dir, entry.name);
+            if (entry.isDirectory()) {
+                if (entry.name.startsWith('.') || entry.name === 'node_modules') continue;
+                this.walkDirectory(fullPath, callback);
+            } else {
+                callback(fullPath);
+            }
+        }
+    }
+
+    private walkSerializedFiles(dir: string, callback: (filePath: string, content: string) => void): void {
+        const extensions = ['.scene', '.prefab', '.anim', '.mtl', '.effect'];
+        this.walkDirectory(dir, (filePath) => {
+            const ext = path.extname(filePath).toLowerCase();
+            if (!extensions.includes(ext)) return;
+            try {
+                const content = fs.readFileSync(filePath, 'utf8');
+                callback(filePath, content);
+            } catch { /* skip binary or unreadable files */ }
+        });
+    }
+
+    private extractTypeIdsFromContent(content: string): string[] {
+        const typeIds: string[] = [];
+        const pattern = /"__type__"\s*:\s*"([^"]+)"/g;
+        let match;
+        while ((match = pattern.exec(content)) !== null) {
+            // Skip built-in Cocos types (cc.Node, cc.Sprite, etc.)
+            if (!match[1].startsWith('cc.')) {
+                typeIds.push(match[1]);
+            }
+        }
+        return typeIds;
+    }
+
+    /**
+     * Compress a standard UUID to Cocos Creator's 22-char format used in __type__.
+     * Format: first 2 hex chars kept + 10 pairs of base64 chars (encoding remaining 30 hex chars).
+     */
+    private compressUuid(uuid: string): string {
+        const BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        const hex = uuid.replace(/-/g, '').toLowerCase();
+        if (hex.length !== 32) return uuid;
+
+        let result = hex[0] + hex[1];
+        for (let i = 2; i < 32; i += 3) {
+            const val = (parseInt(hex[i], 16) << 8) | (parseInt(hex[i + 1], 16) << 4) | parseInt(hex[i + 2], 16);
+            result += BASE64_KEYS[val >> 6];
+            result += BASE64_KEYS[val & 0x3F];
+        }
+        return result; // 2 + 20 = 22 chars
+    }
+
+    /**
+     * Decompress a 22-char Cocos Creator compressed UUID back to standard UUID format.
+     * Returns null if the input is not a valid compressed UUID.
+     */
+    private decompressUuid(compressed: string): string | null {
+        if (compressed.length !== 22) return null;
+
+        const BASE64_KEYS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+        const BASE64_VALUES = new Map<string, number>();
+        for (let i = 0; i < BASE64_KEYS.length; i++) {
+            BASE64_VALUES.set(BASE64_KEYS[i], i);
+        }
+        const HEX = '0123456789abcdef';
+
+        let hex = compressed[0] + compressed[1];
+        for (let i = 2; i < 22; i += 2) {
+            const lhs = BASE64_VALUES.get(compressed[i]);
+            const rhs = BASE64_VALUES.get(compressed[i + 1]);
+            if (lhs === undefined || rhs === undefined) return null;
+            hex += HEX[lhs >> 2];
+            hex += HEX[((lhs & 3) << 2) | (rhs >> 4)];
+            hex += HEX[rhs & 0xF];
+        }
+
+        // Insert dashes: xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx
+        return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
     }
 }
