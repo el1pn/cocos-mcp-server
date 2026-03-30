@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
+import { resolveSpriteFrameUuid } from '../utils/asset-utils';
 
 export class ComponentTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -621,7 +622,18 @@ export class ComponentTools implements ToolExecutor {
                             throw new Error('Component reference value must be a string (node UUID containing the target component)');
                         }
                         break;
-                    case 'spriteFrame':
+                    case 'spriteFrame': {
+                        if (typeof value !== 'string') {
+                            throw new Error('spriteFrame value must be a string UUID');
+                        }
+                        // Auto-convert Texture2D UUID → SpriteFrame UUID
+                        const sfResult = await resolveSpriteFrameUuid(value);
+                        if (sfResult.converted) {
+                            console.log(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${value} → ${sfResult.uuid}`);
+                        }
+                        processedValue = { uuid: sfResult.uuid };
+                        break;
+                    }
                     case 'prefab':
                     case 'asset':
                         if (typeof value === 'string') {

@@ -355,6 +355,52 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     /**
+     * Control animation on a node (play/stop/pause/resume)
+     */
+    controlAnimation(nodeUuid: string, command: string, clipName?: string) {
+        try {
+            const { director, js, Animation } = require('cc');
+            const scene = director.getScene();
+            if (!scene) {
+                return { success: false, error: 'No active scene' };
+            }
+
+            const node = scene.getChildByUuid(nodeUuid);
+            if (!node) {
+                return { success: false, error: `Node with UUID ${nodeUuid} not found` };
+            }
+
+            const anim = node.getComponent(Animation);
+            if (!anim) {
+                return { success: false, error: 'No Animation component found on node' };
+            }
+
+            switch (command) {
+                case 'play':
+                    if (clipName) {
+                        anim.play(clipName);
+                    } else {
+                        anim.play();
+                    }
+                    return { success: true, message: `Animation play: ${clipName || 'default'}` };
+                case 'stop':
+                    anim.stop();
+                    return { success: true, message: 'Animation stopped' };
+                case 'pause':
+                    anim.pause();
+                    return { success: true, message: 'Animation paused' };
+                case 'resume':
+                    anim.resume();
+                    return { success: true, message: 'Animation resumed' };
+                default:
+                    return { success: false, error: `Unknown animation command: ${command}` };
+            }
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    /**
      * Set component property
      */
     setComponentProperty(nodeUuid: string, componentType: string, property: string, value: any) {

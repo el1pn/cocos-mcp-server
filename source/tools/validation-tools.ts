@@ -60,6 +60,9 @@ export class ValidationTools implements ToolExecutor {
     }
 
     private async validateJsonParams(jsonString: string, expectedSchema?: any): Promise<ToolResponse> {
+        if (!jsonString) {
+            return { success: false, error: 'Missing required parameter: jsonString' };
+        }
         try {
             // First try to parse as-is
             let parsed;
@@ -116,6 +119,9 @@ export class ValidationTools implements ToolExecutor {
     }
 
     private async createSafeStringValue(value: string): Promise<ToolResponse> {
+        if (!value && value !== '') {
+            return { success: false, error: 'Missing required parameter: value' };
+        }
         const safeValue = this.escapJsonString(value);
         return {
             success: true,
@@ -129,6 +135,9 @@ export class ValidationTools implements ToolExecutor {
     }
 
     private async formatMcpRequest(toolName: string, toolArgs: any): Promise<ToolResponse> {
+        if (!toolName) {
+            return { success: false, error: 'Missing required parameter: toolName' };
+        }
         try {
             const mcpRequest = {
                 jsonrpc: '2.0',

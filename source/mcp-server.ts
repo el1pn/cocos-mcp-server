@@ -1,6 +1,7 @@
 import * as http from 'http';
 import * as url from 'url';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
+import { logger } from './logger';
 import { SceneTools } from './tools/scene-tools';
 import { NodeTools } from './tools/node-tools';
 import { ComponentTools } from './tools/component-tools';
@@ -15,19 +16,24 @@ import { SceneViewTools } from './tools/scene-view-tools';
 import { ReferenceImageTools } from './tools/reference-image-tools';
 import { AssetAdvancedTools } from './tools/asset-advanced-tools';
 import { ValidationTools } from './tools/validation-tools';
+import { BatchTools } from './tools/batch-tools';
+import { SearchTools } from './tools/search-tools';
+import { EditorTools } from './tools/editor-tools';
+import { AnimationTools } from './tools/animation-tools';
+import { MaterialTools } from './tools/material-tools';
 
 export class MCPServer {
     private static readonly MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
     private static readonly MAX_TOOL_QUEUE_LENGTH = 100;
     private static readonly TOOL_EXECUTION_TIMEOUT_MS = 60_000;
     private static readonly MAX_CONCURRENT_TOOLS = 5;
+    private static readonly MAX_PORT_RETRIES = 10;
 
     private settings: MCPServerSettings;
     private httpServer: http.Server | null = null;
     private clients: Map<string, MCPClient> = new Map();
     private tools: Record<string, any> = {};
     private toolsList: ToolDefinition[] = [];
-    private enabledTools: any[] = []; // Stores the list of enabled tools
     private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
     private toolQueue: Array<{
         run: () => Promise<any>;
@@ -43,7 +49,7 @@ export class MCPServer {
 
     private initializeTools(): void {
         try {
-            console.log('[MCPServer] Initializing tools...');
+            logger.info('Initializing tools...');
             this.tools.scene = new SceneTools();
             this.tools.node = new NodeTools();
             this.tools.component = new ComponentTools();
@@ -58,99 +64,86 @@ export class MCPServer {
             this.tools.referenceImage = new ReferenceImageTools();
             this.tools.assetAdvanced = new AssetAdvancedTools();
             this.tools.validation = new ValidationTools();
-            console.log('[MCPServer] Tools initialized successfully');
+            this.tools.batch = new BatchTools(this.executeToolCall.bind(this));
+            this.tools.search = new SearchTools();
+            this.tools.editor = new EditorTools();
+            this.tools.animation = new AnimationTools();
+            this.tools.material = new MaterialTools();
+            logger.success('Tools initialized successfully');
         } catch (error) {
-            console.error('[MCPServer] Error initializing tools:', error);
+            logger.error(`Error initializing tools: ${error}`);
             throw error;
         }
     }
 
     public async start(): Promise<void> {
         if (this.httpServer) {
-            console.log('[MCPServer] Server is already running');
+            logger.info('Server is already running');
             return;
         }
 
-        try {
-            console.log(`[MCPServer] Starting HTTP server on port ${this.settings.port}...`);
-            this.httpServer = http.createServer(this.handleHttpRequest.bind(this));
+        let port = this.settings.port;
+        let lastError: any;
 
-            await new Promise<void>((resolve, reject) => {
-                this.httpServer!.listen(this.settings.port, '127.0.0.1', () => {
-                    console.log(`[MCPServer] ✅ HTTP server started successfully on http://127.0.0.1:${this.settings.port}`);
-                    console.log(`[MCPServer] Health check: http://127.0.0.1:${this.settings.port}/health`);
-                    console.log(`[MCPServer] MCP endpoint: http://127.0.0.1:${this.settings.port}/mcp`);
-                    resolve();
-                });
-                this.httpServer!.on('error', (err: any) => {
-                    console.error('[MCPServer] ❌ Failed to start server:', err);
-                    if (err.code === 'EADDRINUSE') {
-                        console.error(`[MCPServer] Port ${this.settings.port} is already in use. Please change the port in settings.`);
-                    }
-                    reject(err);
-                });
-            });
-
-            this.setupTools();
-            console.log('[MCPServer] 🚀 MCP Server is ready for connections');
-        } catch (error) {
-            console.error('[MCPServer] ❌ Failed to start server:', error);
-            throw error;
+        for (let attempt = 0; attempt < MCPServer.MAX_PORT_RETRIES; attempt++) {
+            try {
+                await this.tryListen(port);
+                if (port !== this.settings.port) {
+                    logger.warn(`Original port ${this.settings.port} was in use, bound to ${port} instead`);
+                }
+                this.settings.port = port;
+                this.setupTools();
+                logger.success('MCP Server is ready for connections');
+                return;
+            } catch (err: any) {
+                lastError = err;
+                if (err.code === 'EADDRINUSE') {
+                    logger.warn(`Port ${port} in use, trying ${port + 1}...`);
+                    port++;
+                } else {
+                    break;
+                }
+            }
         }
+
+        logger.error(`Failed to start server: ${lastError}`);
+        throw lastError;
+    }
+
+    private tryListen(port: number): Promise<void> {
+        return new Promise<void>((resolve, reject) => {
+            const server = http.createServer(this.handleHttpRequest.bind(this));
+            server.listen(port, '127.0.0.1', () => {
+                this.httpServer = server;
+                logger.success(`HTTP server started on http://127.0.0.1:${port}`);
+                logger.info(`Health check: http://127.0.0.1:${port}/health`);
+                logger.info(`MCP endpoint: http://127.0.0.1:${port}/mcp`);
+                resolve();
+            });
+            server.on('error', (err: any) => {
+                server.close();
+                reject(err);
+            });
+        });
     }
 
     private setupTools(): void {
         this.toolsList = [];
         this.toolExecutors.clear();
 
-        // Build enabled tool set for filtering
-        const enabledToolNames = (this.enabledTools && this.enabledTools.length > 0)
-            ? new Set(this.enabledTools.map(tool => tool.name))
-            : null;
-
-        // Tools now return their final names directly (consolidated action-based tools)
-        // First pass: register all tools
-        const allTools: Array<{ tool: any; toolSet: any }> = [];
         for (const [_category, toolSet] of Object.entries(this.tools)) {
             const tools = toolSet.getTools();
             for (const tool of tools) {
-                allTools.push({ tool, toolSet });
+                this.toolsList.push({
+                    name: tool.name,
+                    description: tool.description,
+                    inputSchema: tool.inputSchema
+                });
+                this.toolExecutors.set(tool.name, (args: any) => toolSet.execute(tool.name, args));
             }
         }
 
-        // Apply filter if active
-        const filteredTools = enabledToolNames
-            ? allTools.filter(({ tool }) => enabledToolNames.has(tool.name))
-            : allTools;
-
-        // If filter resulted in 0 tools (e.g., stale config with old names), fallback to all
-        const toolsToRegister = (enabledToolNames && filteredTools.length === 0)
-            ? allTools
-            : filteredTools;
-
-        for (const { tool, toolSet } of toolsToRegister) {
-            this.toolsList.push({
-                name: tool.name,
-                description: tool.description,
-                inputSchema: tool.inputSchema
-            });
-            this.toolExecutors.set(tool.name, (args: any) => toolSet.execute(tool.name, args));
-        }
-
-        if (enabledToolNames && filteredTools.length === 0) {
-            console.warn(`[MCPServer] Enabled tools filter matched 0 tools (stale config?). Falling back to all ${this.toolsList.length} tools.`);
-        } else {
-            console.log(`[MCPServer] Setup tools: ${this.toolsList.length} tools available`);
-        }
-    }
-
-    public getFilteredTools(enabledTools: any[]): ToolDefinition[] {
-        if (!enabledTools || enabledTools.length === 0) {
-            return this.toolsList; // If no filter config, return all tools
-        }
-
-        const enabledToolNames = new Set(enabledTools.map(tool => tool.name));
-        return this.toolsList.filter(tool => enabledToolNames.has(tool.name));
+        logger.info(`Setup tools: ${this.toolsList.length} tools available`);
     }
 
     public async executeToolCall(toolName: string, args: any): Promise<any> {
@@ -178,14 +171,12 @@ export class MCPServer {
         return this.toolsList;
     }
 
-    public updateEnabledTools(enabledTools: any[]): void {
-        console.log(`[MCPServer] Updating enabled tools: ${enabledTools.length} tools`);
-        this.enabledTools = enabledTools;
-        this.setupTools(); // Re-setup tool list
-    }
-
     public getSettings(): MCPServerSettings {
         return this.settings;
+    }
+
+    public getLogger() {
+        return logger;
     }
 
     private async handleHttpRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
@@ -220,7 +211,7 @@ export class MCPServer {
                 res.end(JSON.stringify({ error: 'Not found' }));
             }
         } catch (error) {
-            console.error('HTTP request error:', error);
+            logger.error(`HTTP request error: ${error}`);
             res.writeHead(500);
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }
@@ -246,17 +237,23 @@ export class MCPServer {
 
                 // MCP notifications have no 'id' field — respond with 202 Accepted
                 if (message.id === undefined || message.id === null) {
-                    console.log(`[MCPServer] Received notification: ${message.method}`);
+                    logger.mcp(`Received notification: ${message.method}`);
                     res.writeHead(202);
                     res.end();
                     return;
                 }
 
                 const response = await this.handleMessage(message);
-                res.writeHead(200);
+                const isQueueFull = response.error?.code === -32029;
+                if (isQueueFull) {
+                    res.setHeader('Retry-After', '5');
+                    res.writeHead(429);
+                } else {
+                    res.writeHead(200);
+                }
                 res.end(JSON.stringify(response));
             } catch (error: any) {
-                console.error('Error handling MCP request:', error);
+                logger.error(`Error handling MCP request: ${error}`);
                 res.writeHead(400);
                 res.end(JSON.stringify({
                     jsonrpc: '2.0',
@@ -297,12 +294,24 @@ export class MCPServer {
                     result = { content: [{ type: 'text', text: JSON.stringify(toolResult) }] };
                     break;
                 }
+                case 'resources/list':
+                    result = { resources: this.getResourcesList() };
+                    break;
+                case 'resources/read': {
+                    const uri = params?.uri;
+                    if (!uri) {
+                        throw new Error('Missing required parameter: uri');
+                    }
+                    result = await this.handleReadResource(uri);
+                    break;
+                }
                 case 'initialize':
                     // MCP initialization
                     result = {
                         protocolVersion: '2024-11-05',
                         capabilities: {
-                            tools: {}
+                            tools: {},
+                            resources: {}
                         },
                         serverInfo: {
                             name: 'cocos-mcp-server',
@@ -314,6 +323,8 @@ export class MCPServer {
                             'The ONLY files you should edit directly are TypeScript/JavaScript source code files (.ts, .js) such as game scripts and components. For everything else, use MCP tools. ' +
                             'When the user asks about Cocos Creator game development, always query the editor for real-time data (scene tree, node properties, asset lists) instead of guessing. ' +
                             'All tools use an "action" parameter to specify the operation. ' +
+                            'MCP Resources available: cocos://hierarchy (scene tree), cocos://selection (current selection), cocos://logs/latest (server logs). ' +
+                            'Use batch_execute to run multiple operations in one call for efficiency. ' +
                             'Key tools: scene_management (action: get_current/get_list/open/save/create/close/get_hierarchy), ' +
                             'node_query (action: get_info/find_by_pattern/find_by_name/get_all/detect_type), ' +
                             'node_lifecycle (action: create/delete/duplicate/move), ' +
@@ -326,7 +337,8 @@ export class MCPServer {
                             'asset_query (action: get_info/get_assets/find_by_name/get_details/query_path/query_uuid/query_url), ' +
                             'asset_crud (action: create/copy/move/delete/save/reimport/import/refresh), ' +
                             'project_build (action: run/build/get_build_settings/open_build_panel/check_builder_status), ' +
-                            'debug_console (action: get_logs/clear/execute_script).'
+                            'debug_console (action: get_logs/clear/execute_script), ' +
+                            'batch_execute (run multiple operations sequentially in one call).'
                     };
                     break;
                 default:
@@ -348,6 +360,102 @@ export class MCPServer {
                 }
             };
         }
+    }
+
+    // --- MCP Resources ---
+
+    private getResourcesList(): any[] {
+        return [
+            {
+                uri: 'cocos://hierarchy',
+                name: 'Scene Hierarchy',
+                description: 'Current scene node tree structure (read-only snapshot)',
+                mimeType: 'application/json'
+            },
+            {
+                uri: 'cocos://selection',
+                name: 'Current Selection',
+                description: 'Currently selected nodes/assets in the editor',
+                mimeType: 'application/json'
+            },
+            {
+                uri: 'cocos://logs/latest',
+                name: 'Server Logs',
+                description: 'Recent MCP server log entries',
+                mimeType: 'text/plain'
+            }
+        ];
+    }
+
+    private async handleReadResource(uri: string): Promise<any> {
+        let parsedUri: URL;
+        try {
+            parsedUri = new URL(uri);
+        } catch {
+            throw new Error(`Invalid resource URI: ${uri}`);
+        }
+
+        if (parsedUri.protocol !== 'cocos:') {
+            throw new Error(`Unsupported protocol: ${parsedUri.protocol}. Expected "cocos:"`);
+        }
+
+        const resourcePath = parsedUri.hostname + parsedUri.pathname;
+
+        switch (resourcePath) {
+            case 'hierarchy': {
+                const tree = await Editor.Message.request('scene', 'query-node-tree');
+                if (!tree) {
+                    return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify({ error: 'No scene loaded' }) }] };
+                }
+                const hierarchy = this.buildResourceHierarchy(tree, 0, 10, 50);
+                return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(hierarchy, null, 2) }] };
+            }
+            case 'selection': {
+                // Editor.Selection is a synchronous API in Cocos Creator 3.8.x
+                const selectedNodes = Editor.Selection.getSelected('node') || [];
+                const selectedAssets = Editor.Selection.getSelected('asset') || [];
+                const data = {
+                    nodes: selectedNodes,
+                    assets: selectedAssets
+                };
+                return { contents: [{ uri, mimeType: 'application/json', text: JSON.stringify(data, null, 2) }] };
+            }
+            case 'logs/latest': {
+                const logContent = logger.getLogContent(200);
+                return { contents: [{ uri, mimeType: 'text/plain', text: logContent || '(no logs yet)' }] };
+            }
+            default:
+                throw new Error(`Unknown resource: ${uri}`);
+        }
+    }
+
+    private buildResourceHierarchy(node: any, depth: number, maxDepth: number, maxChildren: number): any {
+        const info: any = {
+            uuid: node.uuid,
+            name: node.name,
+            type: node.type,
+            active: node.active
+        };
+
+        if (depth >= maxDepth) {
+            const childCount = node.children ? node.children.length : 0;
+            if (childCount > 0) {
+                info.children = `[${childCount} children, depth limit reached]`;
+            }
+            return info;
+        }
+
+        if (node.children) {
+            const total = node.children.length;
+            const slice = node.children.slice(0, maxChildren);
+            info.children = slice.map((c: any) => this.buildResourceHierarchy(c, depth + 1, maxDepth, maxChildren));
+            if (total > maxChildren) {
+                info.childrenTruncated = true;
+                info.totalChildren = total;
+            }
+        }
+
+        return info;
     }
 
     private fixCommonJsonIssues(jsonStr: string): string {
@@ -375,7 +483,7 @@ export class MCPServer {
         if (this.httpServer) {
             this.httpServer.close();
             this.httpServer = null;
-            console.log('[MCPServer] HTTP server stopped');
+            logger.info('HTTP server stopped');
         }
 
         this.clients.clear();
@@ -450,8 +558,12 @@ export class MCPServer {
                 }));
                 
             } catch (error: any) {
-                console.error('Simple API error:', error);
-                res.writeHead(error.message === 'Tool queue is full, please retry later' ? 429 : 500);
+                logger.error(`Simple API error: ${error}`);
+                const isQueueFull = error.message === 'Tool queue is full, please retry later';
+                if (isQueueFull) {
+                    res.setHeader('Retry-After', '5');
+                }
+                res.writeHead(isQueueFull ? 429 : 500);
                 res.end(JSON.stringify({
                     success: false,
                     error: error.message,
@@ -499,16 +611,69 @@ export class MCPServer {
         return body.includes('\'') || body.includes(',}') || body.includes(',]') || body.includes('\n') || body.includes('\t');
     }
 
+    /**
+     * Parameter alias map: common LLM hallucination → canonical parameter name.
+     * Only applied when the canonical parameter is absent.
+     */
+    private static readonly PARAM_ALIASES: Record<string, string> = {
+        // action aliases
+        operation: 'action',
+        command: 'action',
+        method: 'action',
+        // node UUID aliases
+        node_uuid: 'nodeUuid',
+        nodeId: 'nodeUuid',
+        node_id: 'nodeUuid',
+        id: 'nodeUuid',
+        // component aliases
+        component: 'componentType',
+        comp: 'componentType',
+        componentName: 'componentType',
+        // path aliases
+        filePath: 'url',
+        file: 'url',
+        assetPath: 'url',
+        // parent aliases
+        parent: 'parentUuid',
+        parent_uuid: 'parentUuid',
+        parentId: 'parentUuid',
+    };
+
+    /**
+     * Action value alias map: common LLM hallucination → canonical action value.
+     */
+    private static readonly ACTION_ALIASES: Record<string, string> = {
+        remove: 'delete',
+        destroy: 'delete',
+        list: 'get_list',
+        info: 'get_info',
+        find: 'find_by_name',
+    };
+
     private normalizeToolArguments(args: any): any {
         if (!args || typeof args !== 'object' || Array.isArray(args)) {
             return args;
         }
 
-        if (args.action === undefined && typeof args.operation === 'string') {
-            return { ...args, action: args.operation };
+        const normalized = { ...args };
+
+        // Apply parameter name aliases (only when canonical is absent)
+        for (const [alias, canonical] of Object.entries(MCPServer.PARAM_ALIASES)) {
+            if (normalized[canonical] === undefined && normalized[alias] !== undefined) {
+                normalized[canonical] = normalized[alias];
+                delete normalized[alias];
+            }
         }
 
-        return args;
+        // Apply action value aliases
+        if (typeof normalized.action === 'string') {
+            const actionAlias = MCPServer.ACTION_ALIASES[normalized.action];
+            if (actionAlias) {
+                normalized.action = actionAlias;
+            }
+        }
+
+        return normalized;
     }
 
     private async enqueueToolExecution(toolName: string, args: any): Promise<any> {

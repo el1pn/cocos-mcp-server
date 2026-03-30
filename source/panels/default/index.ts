@@ -6,14 +6,6 @@ import { createApp, App, defineComponent, ref, computed, onMounted, watch } from
 
 const panelDataMap = new WeakMap<any, App>();
 
-// Define tool configuration interface
-interface ToolConfig {
-    category: string;
-    name: string;
-    enabled: boolean;
-    description: string;
-}
-
 // Define server settings interface
 interface ServerSettings {
     port: number;
@@ -59,9 +51,6 @@ module.exports = Editor.Panel.define({
                         maxConnections: 10,
                     });
 
-                    const availableTools = ref<ToolConfig[]>([]);
-                    const toolCategories = ref<string[]>([]);
-
                     const t = (key: string, ...args: Array<string | number>): string => {
                         const i18nKey = `cocos-mcp-server.${key}`;
                         const translated = Editor.I18n?.t?.(i18nKey) || key;
@@ -81,18 +70,13 @@ module.exports = Editor.Panel.define({
                         serverRunning.value ? t('server_running_status') : t('server_stopped_status')
                     ));
 
-                    const totalTools = computed(() => availableTools.value.length);
-                    const enabledTools = computed(() => availableTools.value.filter((tool) => tool.enabled).length);
-                    const disabledTools = computed(() => totalTools.value - enabledTools.value);
-                    const toolStatsText = computed(() => t('tool_stats_summary', totalTools.value, enabledTools.value, disabledTools.value));
-
                     const settingsChanged = ref(false);
 
                     // Methods
                     const switchTab = (tabName: string) => {
                         activeTab.value = tabName;
-                        if (tabName === 'tools') {
-                            loadToolManagerState();
+                        if (tabName === 'tester') {
+                            loadTesterTools();
                         }
                     };
 
@@ -142,136 +126,95 @@ module.exports = Editor.Panel.define({
                         }
                     };
 
-                    const loadToolManagerState = async () => {
-                        try {
-                            const result = await Editor.Message.request('cocos-mcp-server', 'getToolManagerState');
-                            if (result && result.success) {
-                                availableTools.value = result.availableTools || [];
-                                console.log('[Vue App] Loaded tools:', availableTools.value.length);
+                    // --- Tool Tester state ---
+                    const testerSelectedTool = ref('');
+                    const testerArgs = ref('{}');
+                    const testerResult = ref<any>(null);
+                    const testerRunning = ref(false);
+                    const testerDuration = ref<number | null>(null);
+                    const testerToolDefs = ref<any[]>([]);
 
-                                const categories = new Set(availableTools.value.map((tool) => tool.category));
-                                toolCategories.value = Array.from(categories);
-                            }
-                        } catch (error) {
-                            console.error('[Vue App] Failed to load tool manager state:', error);
-                        }
-                    };
+                    const testerToolNames = computed(() => testerToolDefs.value.map(t => t.name).sort());
+                    const testerSelectedToolDef = computed(() =>
+                        testerToolDefs.value.find(t => t.name === testerSelectedTool.value) || null
+                    );
+                    const testerResultText = computed(() => {
+                        if (testerResult.value === null) return '';
+                        return JSON.stringify(testerResult.value, null, 2);
+                    });
 
-                    const updateToolStatus = async (category: string, name: string, enabled: boolean) => {
-                        try {
-                            console.log('[Vue App] updateToolStatus called:', category, name, enabled);
+                    const testerParams = computed(() => {
+                        const def = testerSelectedToolDef.value;
+                        if (!def?.inputSchema?.properties) return [];
+                        const required = new Set(def.inputSchema.required || []);
+                        return Object.entries(def.inputSchema.properties).map(([name, prop]: [string, any]) => ({
+                            name,
+                            type: prop.type || 'any',
+                            required: required.has(name),
+                            description: prop.description || '',
+                            enum: prop.enum || null,
+                        }));
+                    });
 
-                            const toolIndex = availableTools.value.findIndex((tool) => tool.category === category && tool.name === name);
-                            if (toolIndex !== -1) {
-                                availableTools.value[toolIndex].enabled = enabled;
-                                availableTools.value = [...availableTools.value];
-                                console.log('[Vue App] Local state updated, tool enabled:', availableTools.value[toolIndex].enabled);
-                            }
-
-                            const result = await Editor.Message.request('cocos-mcp-server', 'updateToolStatus', category, name, enabled);
-                            if (!result || !result.success) {
-                                if (toolIndex !== -1) {
-                                    availableTools.value[toolIndex].enabled = !enabled;
-                                    availableTools.value = [...availableTools.value];
+                    const testerSelectTool = (toolName: string) => {
+                        testerSelectedTool.value = toolName;
+                        const def = testerToolDefs.value.find(t => t.name === toolName);
+                        if (def?.inputSchema?.properties) {
+                            const sample: Record<string, any> = {};
+                            const props = def.inputSchema.properties;
+                            const required = new Set(def.inputSchema.required || []);
+                            for (const [key, prop] of Object.entries(props) as [string, any][]) {
+                                if (prop.enum?.length > 0) {
+                                    sample[key] = prop.enum[0];
+                                } else if (prop.type === 'string') {
+                                    sample[key] = '';
+                                } else if (prop.type === 'number') {
+                                    sample[key] = 0;
+                                } else if (prop.type === 'boolean') {
+                                    sample[key] = false;
+                                } else if (prop.type === 'object') {
+                                    sample[key] = {};
+                                } else if (prop.type === 'array') {
+                                    sample[key] = [];
                                 }
-                                console.error('[Vue App] Backend update failed, rolled back local state');
-                            } else {
-                                console.log('[Vue App] Backend update successful');
                             }
-                        } catch (error) {
-                            const toolIndex = availableTools.value.findIndex((tool) => tool.category === category && tool.name === name);
-                            if (toolIndex !== -1) {
-                                availableTools.value[toolIndex].enabled = !enabled;
-                                availableTools.value = [...availableTools.value];
-                            }
-                            console.error('[Vue App] Failed to update tool status:', error);
+                            testerArgs.value = JSON.stringify(sample, null, 2);
+                        } else {
+                            testerArgs.value = '{}';
                         }
                     };
 
-                    const selectAllTools = async () => {
+                    const testerExecute = async () => {
+                        if (!testerSelectedTool.value) return;
+                        testerRunning.value = true;
+                        testerResult.value = null;
+                        testerDuration.value = null;
+                        const start = Date.now();
                         try {
-                            availableTools.value.forEach((tool) => {
-                                tool.enabled = true;
-                            });
-                            await saveChanges();
-                        } catch (error) {
-                            console.error('[Vue App] Failed to select all tools:', error);
+                            let args = {};
+                            try { args = JSON.parse(testerArgs.value); } catch { /* ignore */ }
+                            const result = await Editor.Message.request('cocos-mcp-server', 'executeToolFromPanel', testerSelectedTool.value, args);
+                            testerResult.value = result;
+                        } catch (error: any) {
+                            testerResult.value = { error: error.message || String(error) };
                         }
+                        testerDuration.value = Date.now() - start;
+                        testerRunning.value = false;
                     };
 
-                    const deselectAllTools = async () => {
+                    const testerClear = () => {
+                        testerResult.value = null;
+                        testerDuration.value = null;
+                    };
+
+                    const loadTesterTools = async () => {
                         try {
-                            availableTools.value.forEach((tool) => {
-                                tool.enabled = false;
-                            });
-                            await saveChanges();
-                        } catch (error) {
-                            console.error('[Vue App] Failed to deselect all tools:', error);
-                        }
-                    };
-
-                    const saveChanges = async () => {
-                        try {
-                            const updates = availableTools.value.map((tool) => ({
-                                category: String(tool.category),
-                                name: String(tool.name),
-                                enabled: Boolean(tool.enabled),
-                            }));
-
-                            console.log('[Vue App] Sending updates:', updates.length, 'tools');
-
-                            const result = await Editor.Message.request('cocos-mcp-server', 'updateToolStatusBatch', updates);
-
-                            if (result && result.success) {
-                                console.log('[Vue App] Tool changes saved successfully');
-                            }
-                        } catch (error) {
-                            console.error('[Vue App] Failed to save tool changes:', error);
-                        }
-                    };
-
-                    const toggleCategoryTools = async (category: string, enabled: boolean) => {
-                        try {
-                            availableTools.value.forEach((tool) => {
-                                if (tool.category === category) {
-                                    tool.enabled = enabled;
-                                }
-                            });
-                            await saveChanges();
-                        } catch (error) {
-                            console.error('[Vue App] Failed to toggle category tools:', error);
-                        }
-                    };
-
-                    const getToolsByCategory = (category: string) => {
-                        return availableTools.value.filter((tool) => tool.category === category);
-                    };
-
-                    const getCategoryDisplayName = (category: string): string => {
-                        const categoryNames: Record<string, string> = {
-                            scene: 'scene_tools',
-                            node: 'node_tools',
-                            component: 'component_tools',
-                            prefab: 'prefab_tools',
-                            project: 'project_tools',
-                            debug: 'debug_tools',
-                            preferences: 'preferences_tools',
-                            server: 'server_tools',
-                            broadcast: 'broadcast_tools',
-                            sceneAdvanced: 'scene_advanced_tools',
-                            sceneView: 'scene_view_tools',
-                            referenceImage: 'reference_image_tools',
-                            assetAdvanced: 'asset_advanced_tools',
-                            validation: 'validation_tools',
-                        };
-
-                        const categoryKey = categoryNames[category];
-                        return categoryKey ? t(categoryKey) : category;
+                            const tools = await Editor.Message.request('cocos-mcp-server', 'getToolsList');
+                            testerToolDefs.value = tools || [];
+                        } catch { /* ignore */ }
                     };
 
                     onMounted(async () => {
-                        await loadToolManagerState();
-
                         try {
                             const result = await Editor.Message.request('cocos-mcp-server', 'get-server-status');
                             if (result && result.settings) {
@@ -319,29 +262,29 @@ module.exports = Editor.Panel.define({
                         httpUrl,
                         isProcessing,
                         settings,
-                        availableTools,
-                        toolCategories,
                         settingsChanged,
 
                         statusClass,
-                        totalTools,
-                        enabledTools,
-                        disabledTools,
-                        toolStatsText,
 
                         t,
                         switchTab,
                         toggleServer,
                         saveSettings,
                         copyUrl,
-                        loadToolManagerState,
-                        updateToolStatus,
-                        selectAllTools,
-                        deselectAllTools,
-                        saveChanges,
-                        toggleCategoryTools,
-                        getToolsByCategory,
-                        getCategoryDisplayName,
+
+                        // Tester
+                        testerSelectedTool,
+                        testerArgs,
+                        testerResult,
+                        testerRunning,
+                        testerDuration,
+                        testerToolNames,
+                        testerSelectedToolDef,
+                        testerResultText,
+                        testerParams,
+                        testerSelectTool,
+                        testerExecute,
+                        testerClear,
                     };
                 },
                 template: readFileSync(join(__dirname, '../../../static/template/vue/mcp-server-app.html'), 'utf-8'),

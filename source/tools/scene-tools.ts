@@ -34,6 +34,16 @@ export class SceneTools implements ToolExecutor {
                             type: 'boolean',
                             description: 'Include component information (optional for action: "get_hierarchy", default: false)',
                             default: false
+                        },
+                        maxDepth: {
+                            type: 'number',
+                            description: 'Maximum depth of hierarchy traversal (optional for action: "get_hierarchy", default: 10, max: 50)',
+                            default: 10
+                        },
+                        maxChildrenPerLevel: {
+                            type: 'number',
+                            description: 'Maximum children per node level (optional for action: "get_hierarchy", default: 50, max: 200). Exceeding children are truncated with a summary.',
+                            default: 50
                         }
                     },
                     required: ['action']
@@ -59,7 +69,11 @@ export class SceneTools implements ToolExecutor {
             case 'close':
                 return await this.closeScene();
             case 'get_hierarchy':
-                return await this.getSceneHierarchy(args.includeComponents);
+                return await this.getSceneHierarchy(
+                    args.includeComponents,
+                    Math.min(args.maxDepth ?? 10, 50),
+                    Math.min(args.maxChildrenPerLevel ?? 50, 200)
+                );
             default:
                 throw new Error(`Unknown action: ${args.action}`);
         }
@@ -339,15 +353,20 @@ export class SceneTools implements ToolExecutor {
         });
     }
 
-    private async getSceneHierarchy(includeComponents: boolean = false): Promise<ToolResponse> {
+    private async getSceneHierarchy(
+        includeComponents: boolean = false,
+        maxDepth: number = 10,
+        maxChildrenPerLevel: number = 50
+    ): Promise<ToolResponse> {
         return new Promise((resolve) => {
             // Try using Editor API to query scene node tree first
             Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
                 if (tree) {
-                    const hierarchy = this.buildHierarchy(tree, includeComponents);
+                    const hierarchy = this.buildHierarchy(tree, includeComponents, maxDepth, maxChildrenPerLevel, 0);
                     resolve({
                         success: true,
-                        data: hierarchy
+                        data: hierarchy,
+                        instruction: `Hierarchy returned with maxDepth=${maxDepth}, maxChildrenPerLevel=${maxChildrenPerLevel}. Look for "childrenTruncated" or "depthLimitReached" flags to detect truncation. Re-request with higher limits or specific nodeUuid to explore deeper.`
                     });
                 } else {
                     resolve({ success: false, error: 'No scene hierarchy available' });
@@ -369,7 +388,13 @@ export class SceneTools implements ToolExecutor {
         });
     }
 
-    private buildHierarchy(node: any, includeComponents: boolean): any {
+    private buildHierarchy(
+        node: any,
+        includeComponents: boolean,
+        maxDepth: number,
+        maxChildrenPerLevel: number,
+        currentDepth: number
+    ): any {
         const nodeInfo: any = {
             uuid: node.uuid,
             name: node.name,
@@ -385,10 +410,29 @@ export class SceneTools implements ToolExecutor {
             }));
         }
 
+        if (currentDepth >= maxDepth) {
+            const childCount = node.children ? node.children.length : 0;
+            nodeInfo.children = [];
+            if (childCount > 0) {
+                nodeInfo.depthLimitReached = true;
+                nodeInfo.totalChildren = childCount;
+            }
+            return nodeInfo;
+        }
+
         if (node.children) {
-            nodeInfo.children = node.children.map((child: any) =>
-                this.buildHierarchy(child, includeComponents)
+            const totalChildren = node.children.length;
+            const childrenToProcess = node.children.slice(0, maxChildrenPerLevel);
+
+            nodeInfo.children = childrenToProcess.map((child: any) =>
+                this.buildHierarchy(child, includeComponents, maxDepth, maxChildrenPerLevel, currentDepth + 1)
             );
+
+            if (totalChildren > maxChildrenPerLevel) {
+                nodeInfo.childrenTruncated = true;
+                nodeInfo.totalChildren = totalChildren;
+                nodeInfo.shownChildren = maxChildrenPerLevel;
+            }
         }
 
         return nodeInfo;

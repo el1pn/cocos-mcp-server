@@ -1,10 +1,9 @@
 import { MCPServer } from './mcp-server';
 import { readSettings, saveSettings } from './settings';
 import { MCPServerSettings } from './types';
-import { ToolManager } from './tools/tool-manager';
+import { logger } from './logger';
 
 let mcpServer: MCPServer | null = null;
-let toolManager: ToolManager;
 
 /**
  * @en Registration method for the main process of Extension
@@ -27,9 +26,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
      */
     async startServer() {
         if (mcpServer) {
-            // Ensure using the latest tool configuration
-            const enabledTools = toolManager.getEnabledTools();
-            mcpServer.updateEnabledTools(enabledTools);
             await mcpServer.start();
         } else {
             console.warn('[MCP Plugin] mcpServer not initialized');
@@ -87,15 +83,7 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     getFilteredToolsList() {
-        if (!mcpServer) return [];
-        
-        // Get currently enabled tools
-        const enabledTools = toolManager.getEnabledTools();
-        
-        // Update MCP server's enabled tools list
-        mcpServer.updateEnabledTools(enabledTools);
-
-        return mcpServer.getFilteredTools(enabledTools);
+        return mcpServer ? mcpServer.getAvailableTools() : [];
     },
     /**
      * @en Get server settings
@@ -113,108 +101,11 @@ export const methods: { [key: string]: (...any: any) => any } = {
         return mcpServer ? mcpServer.getSettings() : readSettings();
     },
 
-    // Tool manager related methods
-    async getToolManagerState() {
-        return toolManager.getToolManagerState();
-    },
-
-    async createToolConfiguration(name: string, description?: string) {
-        try {
-            const config = toolManager.createConfiguration(name, description);
-            return { success: true, id: config.id, config };
-        } catch (error: any) {
-            throw new Error(`Failed to create configuration: ${error.message}`);
+    async executeToolFromPanel(toolName: string, args: any) {
+        if (!mcpServer) {
+            throw new Error('MCP Server is not initialized');
         }
-    },
-
-    async updateToolConfiguration(configId: string, updates: any) {
-        try {
-            return toolManager.updateConfiguration(configId, updates);
-        } catch (error: any) {
-            throw new Error(`Failed to update configuration: ${error.message}`);
-        }
-    },
-
-    async deleteToolConfiguration(configId: string) {
-        try {
-            toolManager.deleteConfiguration(configId);
-            return { success: true };
-        } catch (error: any) {
-            throw new Error(`Failed to delete configuration: ${error.message}`);
-        }
-    },
-
-    async setCurrentToolConfiguration(configId: string) {
-        try {
-            toolManager.setCurrentConfiguration(configId);
-            return { success: true };
-        } catch (error: any) {
-            throw new Error(`Failed to set current configuration: ${error.message}`);
-        }
-    },
-
-    async updateToolStatus(category: string, toolName: string, enabled: boolean) {
-        try {
-            const currentConfig = toolManager.getCurrentConfiguration();
-            if (!currentConfig) {
-                throw new Error('No current configuration');
-            }
-            
-            toolManager.updateToolStatus(currentConfig.id, category, toolName, enabled);
-            
-            // Update MCP server's tool list
-            if (mcpServer) {
-                const enabledTools = toolManager.getEnabledTools();
-                mcpServer.updateEnabledTools(enabledTools);
-            }
-            
-            return { success: true };
-        } catch (error: any) {
-            throw new Error(`Failed to update tool status: ${error.message}`);
-        }
-    },
-
-    async updateToolStatusBatch(updates: any[]) {
-        try {
-            console.log(`[Main] updateToolStatusBatch called with updates count:`, updates ? updates.length : 0);
-            
-            const currentConfig = toolManager.getCurrentConfiguration();
-            if (!currentConfig) {
-                throw new Error('No current configuration');
-            }
-            
-            toolManager.updateToolStatusBatch(currentConfig.id, updates);
-            
-            // Update MCP server's tool list
-            if (mcpServer) {
-                const enabledTools = toolManager.getEnabledTools();
-                mcpServer.updateEnabledTools(enabledTools);
-            }
-            
-            return { success: true };
-        } catch (error: any) {
-            throw new Error(`Failed to batch update tool status: ${error.message}`);
-        }
-    },
-
-    async exportToolConfiguration(configId: string) {
-        try {
-            return { configJson: toolManager.exportConfiguration(configId) };
-        } catch (error: any) {
-            throw new Error(`Failed to export configuration: ${error.message}`);
-        }
-    },
-
-    async importToolConfiguration(configJson: string) {
-        try {
-            return toolManager.importConfiguration(configJson);
-        } catch (error: any) {
-            throw new Error(`Failed to import configuration: ${error.message}`);
-        }
-    },
-
-    async getEnabledTools() {
-        return toolManager.getEnabledTools();
+        return mcpServer.executeToolCall(toolName, args);
     }
 };
 
@@ -224,18 +115,18 @@ export const methods: { [key: string]: (...any: any) => any } = {
  */
 export function load() {
     console.log('Cocos MCP Server extension loaded');
-    
-    // Initialize tool manager
-    toolManager = new ToolManager();
-    
+
+    // Initialize logger disk persistence
+    try {
+        logger.initDiskLog(Editor.Project.path);
+    } catch {
+        // Logger works without disk — best effort
+    }
+
     // Read settings
     const settings = readSettings();
     mcpServer = new MCPServer(settings);
-    
-    // Initialize MCP server's tool list
-    const enabledTools = toolManager.getEnabledTools();
-    mcpServer.updateEnabledTools(enabledTools);
-    
+
     // Auto-start server if configured
     if (settings.autoStart) {
         mcpServer.start().catch(err => {

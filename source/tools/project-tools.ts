@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ProjectInfo, AssetInfo } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { AssetSafety } from '../utils/asset-safety';
 
 export class ProjectTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -579,35 +580,18 @@ export class ProjectTools implements ToolExecutor {
     }
 
     private async createAsset(url: string, content: string | null = null, overwrite: boolean = false): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const options = {
-                overwrite: overwrite,
-                rename: !overwrite
-            };
-
-            Editor.Message.request('asset-db', 'create-asset', url, content, options).then((result: any) => {
-                if (result && result.uuid) {
-                    resolve({
-                        success: true,
-                        data: {
-                            uuid: result.uuid,
-                            url: result.url,
-                            message: content === null ? 'Folder created successfully' : 'File created successfully'
-                        }
-                    });
-                } else {
-                    resolve({
-                        success: true,
-                        data: {
-                            url: url,
-                            message: content === null ? 'Folder created successfully' : 'File created successfully'
-                        }
-                    });
+        const result = await AssetSafety.safeCreateAsset(url, content, { overwrite });
+        if (result.success) {
+            return {
+                success: true,
+                data: {
+                    uuid: result.uuid,
+                    url: result.url,
+                    message: result.message
                 }
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            };
+        }
+        return { success: false, error: result.error };
     }
 
     private async copyAsset(source: string, target: string, overwrite: boolean = false): Promise<ToolResponse> {

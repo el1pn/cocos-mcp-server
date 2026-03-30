@@ -136,6 +136,11 @@
                 "methods": [
                     "getEnabledTools"
                 ]
+            },
+            "executeToolFromPanel": {
+                "methods": [
+                    "executeToolFromPanel"
+                ]
             }
         },
         "scene": {
@@ -151,7 +156,8 @@
                 "setComponentProperty",
                 "getCurrentSceneInfo",
                 "getSceneHierarchy",
-                "createPrefabFromNode"
+                "createPrefabFromNode",
+                "controlAnimation"
             ]
         }
     }
