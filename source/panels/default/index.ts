@@ -55,7 +55,7 @@ module.exports = Editor.Panel.define({
                         const i18nKey = `cocos-mcp-server.${key}`;
                         const translated = Editor.I18n?.t?.(i18nKey) || key;
                         const baseText = String(translated);
-                        return args.reduce((text: string, value, index) => {
+                        return args.reduce<string>((text, value, index) => {
                             return text.replace(`{${index}}`, String(value));
                         }, baseText);
                     };

@@ -121,7 +121,7 @@ export interface MCPClient {
     userAgent?: string;
 }
 
-export { LogEntry, LogLevel } from '../logger';
+export type { LogEntry, LogLevel } from '../logger';
 
 export interface ToolExecutor {
     getTools(): ToolDefinition[];

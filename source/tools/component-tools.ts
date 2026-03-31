@@ -1028,7 +1028,7 @@ export class ComponentTools implements ToolExecutor {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
-                            value: colorArrayValue,
+                            value: colorArrayValue as any,
                             type: 'cc.Color'
                         }
                     });
