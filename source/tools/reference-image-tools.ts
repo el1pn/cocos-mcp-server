@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class ReferenceImageTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -85,8 +86,9 @@ export class ReferenceImageTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'reference_image_manage':
-                switch (args.action) {
+            case 'reference_image_manage': {
+                const action = normalizeAction('reference_image_manage', args.action);
+                switch (action) {
                     case 'add':
                         return await this.addReferenceImage(args.paths);
                     case 'remove':
@@ -104,8 +106,10 @@ export class ReferenceImageTools implements ToolExecutor {
                     case 'refresh':
                         return await this.refreshReferenceImage();
                     default:
-                        throw new Error(`Unknown action: ${args.action}`);
+                        throw new Error(`Unknown action: ${action}`);
                 }
+            }
+            // falls through never reached – all branches return/throw
             case 'reference_image_transform':
                 switch (args.action) {
                     case 'set_data':

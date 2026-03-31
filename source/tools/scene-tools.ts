@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, SceneInfo } from '../types';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class SceneTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -53,7 +54,8 @@ export class SceneTools implements ToolExecutor {
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
-        switch (args.action) {
+        const action = normalizeAction('scene_management', args.action);
+        switch (action) {
             case 'get_current':
                 return await this.getCurrentScene();
             case 'get_list':
@@ -75,7 +77,7 @@ export class SceneTools implements ToolExecutor {
                     Math.min(args.maxChildrenPerLevel ?? 50, 200)
                 );
             default:
-                throw new Error(`Unknown action: ${args.action}`);
+                throw new Error(`Unknown action: ${action}`);
         }
     }
 

@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, PerformanceStats, ValidationResult, ValidationIssue } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class DebugTools implements ToolExecutor {
     private consoleMessages: ConsoleMessage[] = [];
@@ -150,8 +151,9 @@ export class DebugTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'debug_console':
-                switch (args.action) {
+            case 'debug_console': {
+                const action = normalizeAction('debug_console', args.action);
+                switch (action) {
                     case 'get_logs':
                         return await this.getConsoleLogs(args.limit, args.filter);
                     case 'clear':
@@ -159,8 +161,9 @@ export class DebugTools implements ToolExecutor {
                     case 'execute_script':
                         return await this.executeScript(args.script);
                     default:
-                        throw new Error(`Unknown action: ${args.action}`);
+                        throw new Error(`Unknown action: ${action}`);
                 }
+            }
             case 'debug_inspect':
                 switch (args.action) {
                     case 'get_node_tree':

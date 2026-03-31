@@ -2,6 +2,7 @@ import { ToolDefinition, ToolResponse, ToolExecutor, ProjectInfo, AssetInfo } fr
 import * as fs from 'fs';
 import * as path from 'path';
 import { AssetSafety } from '../utils/asset-safety';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class ProjectTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -227,7 +228,8 @@ export class ProjectTools implements ToolExecutor {
     }
 
     private async executeAssetCrud(args: any): Promise<ToolResponse> {
-        switch (args.action) {
+        const action = normalizeAction('asset_crud', args.action);
+        switch (action) {
             case 'create':
                 return await this.createAsset(args.url, args.content, args.overwrite);
             case 'copy':
@@ -245,7 +247,7 @@ export class ProjectTools implements ToolExecutor {
             case 'refresh':
                 return await this.refreshAssets(args.folder);
             default:
-                throw new Error(`Unknown asset_crud action: ${args.action}`);
+                throw new Error(`Unknown asset_crud action: ${action}`);
         }
     }
 

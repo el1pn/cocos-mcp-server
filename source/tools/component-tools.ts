@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class ComponentTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -12,7 +13,7 @@ export class ComponentTools implements ToolExecutor {
                     properties: {
                         action: {
                             type: 'string',
-                            description: 'The action to perform',
+                            description: 'The action to perform. MUST be one of: "add", "remove", "attach_script". Use "remove" (not "delete") to remove a component.',
                             enum: ['add', 'remove', 'attach_script']
                         },
                         nodeUuid: {
@@ -93,7 +94,7 @@ export class ComponentTools implements ToolExecutor {
                                 'node', 'component', 'spriteFrame', 'prefab', 'asset',
                                 'nodeArray', 'colorArray', 'numberArray', 'stringArray'
                             ]
-                                                },
+                        },
 
                         value: {
                             description: 'Property value - Use the corresponding data format based on propertyType:\n\n' +
@@ -141,7 +142,7 @@ export class ComponentTools implements ToolExecutor {
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
             case 'component_manage': {
-                const action = args.action;
+                const action = normalizeAction('component_manage', args.action);
                 switch (action) {
                     case 'add':
                         return await this.addComponent(args.nodeUuid, args.componentType);
@@ -154,7 +155,7 @@ export class ComponentTools implements ToolExecutor {
                 }
             }
             case 'component_query': {
-                const action = args.action;
+                const action = normalizeAction('component_query', args.action);
                 switch (action) {
                     case 'get_all':
                         return await this.getComponents(args.nodeUuid);
@@ -470,7 +471,7 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async setComponentProperty(args: any): Promise<ToolResponse> {
-                        const { nodeUuid, componentType, property, propertyType, value } = args;
+        const { nodeUuid, componentType, property, propertyType, value } = args;
 
         return new Promise(async (resolve) => {
             try {
@@ -1357,7 +1358,7 @@ export class ComponentTools implements ToolExecutor {
             if (['spriteFrame', 'texture', 'material', 'font', 'clip', 'prefab'].includes(propertyName.toLowerCase())) {
                 type = 'asset';
             } else if (propertyName.toLowerCase().includes('node') ||
-                      propertyName.toLowerCase().includes('target')) {
+                propertyName.toLowerCase().includes('target')) {
                 type = 'node';
             } else if (propertyName.toLowerCase().includes('component')) {
                 type = 'component';
@@ -1488,7 +1489,7 @@ export class ComponentTools implements ToolExecutor {
         }
     }
 
-        private parseColorString(colorStr: string): { r: number; g: number; b: number; a: number } {
+    private parseColorString(colorStr: string): { r: number; g: number; b: number; a: number } {
         const str = colorStr.trim();
 
         // Only supports hex format #RRGGBB or #RRGGBBAA
@@ -1649,76 +1650,76 @@ export class ComponentTools implements ToolExecutor {
             if (nodeBasicProperties.includes(property)) {
                 return {
                     success: false,
-                                          error: `Property '${property}' is a node basic property, not a component property`,
-                      instruction: `Please use set_node_property method to set node properties: set_node_property(uuid="${nodeUuid}", property="${property}", value=${JSON.stringify(value)})`
-                  };
-              } else if (nodeTransformProperties.includes(property)) {
-                  return {
-                      success: false,
-                      error: `Property '${property}' is a node transform property, not a component property`,
-                      instruction: `Please use set_node_transform method to set transform properties: set_node_transform(uuid="${nodeUuid}", ${property}=${JSON.stringify(value)})`
-                  };
-              }
-          }
+                    error: `Property '${property}' is a node basic property, not a component property`,
+                    instruction: `Please use set_node_property method to set node properties: set_node_property(uuid="${nodeUuid}", property="${property}", value=${JSON.stringify(value)})`
+                };
+            } else if (nodeTransformProperties.includes(property)) {
+                return {
+                    success: false,
+                    error: `Property '${property}' is a node transform property, not a component property`,
+                    instruction: `Please use set_node_transform method to set transform properties: set_node_transform(uuid="${nodeUuid}", ${property}=${JSON.stringify(value)})`
+                };
+            }
+        }
 
-          // Detect common incorrect usage
-          if (nodeBasicProperties.includes(property) || nodeTransformProperties.includes(property)) {
-              const methodName = nodeTransformProperties.includes(property) ? 'set_node_transform' : 'set_node_property';
-              return {
-                  success: false,
-                  error: `Property '${property}' is a node property, not a component property`,
-                  instruction: `Property '${property}' should be set using ${methodName} method, not set_component_property. Please use: ${methodName}(uuid="${nodeUuid}", ${nodeTransformProperties.includes(property) ? property : `property="${property}"`}=${JSON.stringify(value)})`
-              };
-          }
+        // Detect common incorrect usage
+        if (nodeBasicProperties.includes(property) || nodeTransformProperties.includes(property)) {
+            const methodName = nodeTransformProperties.includes(property) ? 'set_node_transform' : 'set_node_property';
+            return {
+                success: false,
+                error: `Property '${property}' is a node property, not a component property`,
+                instruction: `Property '${property}' should be set using ${methodName} method, not set_component_property. Please use: ${methodName}(uuid="${nodeUuid}", ${nodeTransformProperties.includes(property) ? property : `property="${property}"`}=${JSON.stringify(value)})`
+            };
+        }
 
-          return null; // Not a node property, continue normal processing
-      }
+        return null; // Not a node property, continue normal processing
+    }
 
-      /**
-       * Generate component suggestion info
-       */
-      private generateComponentSuggestion(requestedType: string, availableTypes: string[], property: string): string {
-          // Check if similar component types exist
-          const similarTypes = availableTypes.filter(type =>
-              type.toLowerCase().includes(requestedType.toLowerCase()) ||
-              requestedType.toLowerCase().includes(type.toLowerCase())
-          );
+    /**
+     * Generate component suggestion info
+     */
+    private generateComponentSuggestion(requestedType: string, availableTypes: string[], property: string): string {
+        // Check if similar component types exist
+        const similarTypes = availableTypes.filter(type =>
+            type.toLowerCase().includes(requestedType.toLowerCase()) ||
+            requestedType.toLowerCase().includes(type.toLowerCase())
+        );
 
-          let instruction = '';
+        let instruction = '';
 
-          if (similarTypes.length > 0) {
-              instruction += `\n\n🔍 Found similar components: ${similarTypes.join(', ')}`;
-              instruction += `\n💡 Suggestion: Perhaps you meant to set the '${similarTypes[0]}' component?`;
-          }
+        if (similarTypes.length > 0) {
+            instruction += `\n\n🔍 Found similar components: ${similarTypes.join(', ')}`;
+            instruction += `\n💡 Suggestion: Perhaps you meant to set the '${similarTypes[0]}' component?`;
+        }
 
-          // Recommend possible components based on property name
-          const propertyToComponentMap: Record<string, string[]> = {
-              'string': ['cc.Label', 'cc.RichText', 'cc.EditBox'],
-              'text': ['cc.Label', 'cc.RichText'],
-              'fontSize': ['cc.Label', 'cc.RichText'],
-              'spriteFrame': ['cc.Sprite'],
-              'color': ['cc.Label', 'cc.Sprite', 'cc.Graphics'],
-              'normalColor': ['cc.Button'],
-              'pressedColor': ['cc.Button'],
-              'target': ['cc.Button'],
-              'contentSize': ['cc.UITransform'],
-              'anchorPoint': ['cc.UITransform']
-          };
+        // Recommend possible components based on property name
+        const propertyToComponentMap: Record<string, string[]> = {
+            'string': ['cc.Label', 'cc.RichText', 'cc.EditBox'],
+            'text': ['cc.Label', 'cc.RichText'],
+            'fontSize': ['cc.Label', 'cc.RichText'],
+            'spriteFrame': ['cc.Sprite'],
+            'color': ['cc.Label', 'cc.Sprite', 'cc.Graphics'],
+            'normalColor': ['cc.Button'],
+            'pressedColor': ['cc.Button'],
+            'target': ['cc.Button'],
+            'contentSize': ['cc.UITransform'],
+            'anchorPoint': ['cc.UITransform']
+        };
 
-          const recommendedComponents = propertyToComponentMap[property] || [];
-          const availableRecommended = recommendedComponents.filter(comp => availableTypes.includes(comp));
+        const recommendedComponents = propertyToComponentMap[property] || [];
+        const availableRecommended = recommendedComponents.filter(comp => availableTypes.includes(comp));
 
-          if (availableRecommended.length > 0) {
-              instruction += `\n\n🎯 Based on property '${property}', recommended components: ${availableRecommended.join(', ')}`;
-          }
+        if (availableRecommended.length > 0) {
+            instruction += `\n\n🎯 Based on property '${property}', recommended components: ${availableRecommended.join(', ')}`;
+        }
 
-          // Provide operation suggestions
-          instruction += `\n\n📋 Suggested Actions:`;
-          instruction += `\n1. Use get_components(nodeUuid="${requestedType.includes('uuid') ? 'YOUR_NODE_UUID' : 'nodeUuid'}") to view all components on the node`;
-          instruction += `\n2. If you need to add a component, use add_component(nodeUuid="...", componentType="${requestedType}")`;
-          instruction += `\n3. Verify that the component type name is correct (case-sensitive)`;
+        // Provide operation suggestions
+        instruction += `\n\n📋 Suggested Actions:`;
+        instruction += `\n1. Use get_components(nodeUuid="${requestedType.includes('uuid') ? 'YOUR_NODE_UUID' : 'nodeUuid'}") to view all components on the node`;
+        instruction += `\n2. If you need to add a component, use add_component(nodeUuid="...", componentType="${requestedType}")`;
+        instruction += `\n3. Verify that the component type name is correct (case-sensitive)`;
 
-                  return instruction;
+        return instruction;
     }
 
     /**

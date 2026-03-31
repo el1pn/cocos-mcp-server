@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, NodeInfo } from '../types';
 import { ComponentTools } from './component-tools';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class NodeTools implements ToolExecutor {
     private componentTools = new ComponentTools();
@@ -199,8 +200,9 @@ export class NodeTools implements ToolExecutor {
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
-            case 'node_lifecycle':
-                switch (args.action) {
+            case 'node_lifecycle': {
+                const action = normalizeAction('node_lifecycle', args.action);
+                switch (action) {
                     case 'create':
                         return await this.createNode(args);
                     case 'delete':
@@ -210,10 +212,12 @@ export class NodeTools implements ToolExecutor {
                     case 'move':
                         return await this.moveNode(args.nodeUuid, args.newParentUuid, args.siblingIndex);
                     default:
-                        throw new Error(`Unknown action for node_lifecycle: ${args.action}`);
+                        throw new Error(`Unknown action for node_lifecycle: ${action}`);
                 }
-            case 'node_query':
-                switch (args.action) {
+            }
+            case 'node_query': {
+                const action = normalizeAction('node_query', args.action);
+                switch (action) {
                     case 'get_info':
                         return await this.getNodeInfo(args.uuid);
                     case 'find_by_pattern':
@@ -225,8 +229,9 @@ export class NodeTools implements ToolExecutor {
                     case 'detect_type':
                         return await this.detectNodeType(args.uuid);
                     default:
-                        throw new Error(`Unknown action for node_query: ${args.action}`);
+                        throw new Error(`Unknown action for node_query: ${action}`);
                 }
+            }
             case 'node_transform':
                 switch (args.action) {
                     case 'set_transform':

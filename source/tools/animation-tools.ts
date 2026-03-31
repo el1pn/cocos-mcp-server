@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { normalizeAction } from '../utils/action-aliases';
 
 export class AnimationTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -37,7 +38,8 @@ export class AnimationTools implements ToolExecutor {
     }
 
     async execute(_toolName: string, args: any): Promise<ToolResponse> {
-        switch (args.action) {
+        const action = normalizeAction('manage_animation', args.action);
+        switch (action) {
             case 'get_clips':
                 return await this.getClips(args.nodeUuid);
             case 'get_state':
@@ -51,7 +53,7 @@ export class AnimationTools implements ToolExecutor {
             case 'resume':
                 return await this.controlAnimation(args.nodeUuid, 'resume');
             default:
-                return { success: false, error: `Unknown action: ${args.action}` };
+                return { success: false, error: `Unknown action: ${action}` };
         }
     }
 
