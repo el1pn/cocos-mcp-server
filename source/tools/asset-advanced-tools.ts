@@ -68,7 +68,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                         action: {
                             type: 'string',
                             description: 'The action to perform',
-                            enum: ['import', 'delete', 'validate_references', 'compress_textures', 'export_manifest']
+                            enum: ['import', 'delete', 'validate_references', 'compress_textures', 'export_manifest', 'scan_scene_refs']
                         },
                         sourceDirectory: {
                             type: 'string',
@@ -160,6 +160,8 @@ export class AssetAdvancedTools implements ToolExecutor {
                         return await this.compressTextures(args.directory, args.format, args.quality);
                     case 'export_manifest':
                         return await this.exportAssetManifest(args.directory, args.format, args.includeMetadata);
+                    case 'scan_scene_refs':
+                        return await this.scanSceneMissingRefs();
                     default:
                         throw new Error(`Unknown action for asset_batch: ${args.action}`);
                 }
@@ -407,6 +409,122 @@ export class AssetAdvancedTools implements ToolExecutor {
                 resolve({ success: false, error: err.message });
             }
         });
+    }
+
+    private async scanSceneMissingRefs(): Promise<ToolResponse> {
+        try {
+            // Step 1: Walk node tree, collect all node UUIDs
+            const nodeTree = await Editor.Message.request('scene', 'query-node-tree');
+            if (!nodeTree) return { success: false, error: 'Failed to query scene node tree' };
+
+            const nodeUuids: string[] = [];
+            const queue: any[] = [nodeTree];
+            while (queue.length > 0) {
+                const node = queue.shift();
+                if (node?.uuid) nodeUuids.push(node.uuid);
+                if (node?.children) queue.push(...node.children);
+            }
+            const nodeUuidSet = new Set(nodeUuids);
+
+            // Step 2: Query all nodes in parallel batches, collect UUID refs
+            const NODE_BATCH = 10;
+            const uuidToRefs = new Map<string, { nodeUuid: string; nodeName: string; componentType: string; property: string }[]>();
+
+            for (let i = 0; i < nodeUuids.length; i += NODE_BATCH) {
+                const batch = nodeUuids.slice(i, i + NODE_BATCH);
+                const results = await Promise.all(
+                    batch.map(uuid => Editor.Message.request('scene', 'query-node', uuid).catch(() => null))
+                );
+                for (let j = 0; j < results.length; j++) {
+                    const nodeData = results[j];
+                    if (!nodeData?.__comps__) continue;
+                    const nodeUuid = batch[j];
+                    const nodeName = nodeData.name?.value ?? nodeData.name ?? nodeUuid;
+                    for (const comp of nodeData.__comps__ as any[]) {
+                        const compType = (comp as any).__type__ || (comp as any).type || 'Unknown';
+                        this.collectRefUuids(comp as any, compType, nodeUuid, String(nodeName), uuidToRefs);
+                    }
+                }
+            }
+
+            // Remove node-to-node refs (UUIDs that are scene nodes, not assets)
+            for (const uuid of nodeUuidSet) uuidToRefs.delete(uuid);
+
+            // Step 3: Validate unique asset UUIDs against asset-db in parallel batches
+            const uniqueUuids = Array.from(uuidToRefs.keys());
+            const ASSET_BATCH = 20;
+            const missingUuids = new Set<string>();
+
+            for (let i = 0; i < uniqueUuids.length; i += ASSET_BATCH) {
+                const batch = uniqueUuids.slice(i, i + ASSET_BATCH);
+                const results = await Promise.all(
+                    batch.map(uuid =>
+                        Editor.Message.request('asset-db', 'query-asset-info', uuid)
+                            .then((info: any) => ({ uuid, exists: !!info }))
+                            .catch(() => ({ uuid, exists: false }))
+                    )
+                );
+                for (const { uuid, exists } of results) {
+                    if (!exists) missingUuids.add(uuid);
+                }
+            }
+
+            // Step 4: Build report
+            const missingRefs = Array.from(missingUuids).map(uuid => ({
+                missingUuid: uuid,
+                referencedBy: uuidToRefs.get(uuid) ?? []
+            }));
+
+            return {
+                success: true,
+                data: {
+                    totalNodes: nodeUuids.length,
+                    totalUniqueAssetRefs: uniqueUuids.length,
+                    missingCount: missingUuids.size,
+                    missingRefs,
+                    message: missingUuids.size === 0
+                        ? 'No missing asset references found in scene'
+                        : `Found ${missingUuids.size} missing asset reference(s) across ${missingRefs.reduce((n, r) => n + r.referencedBy.length, 0)} component properties`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
+    }
+
+    private collectRefUuids(
+        comp: any,
+        compType: string,
+        nodeUuid: string,
+        nodeName: string,
+        uuidToRefs: Map<string, { nodeUuid: string; nodeName: string; componentType: string; property: string }[]>
+    ): void {
+        const skip = new Set(['__type__', 'cid', 'node', 'uuid', '_id', '__scriptAsset', 'enabled', 'type', 'readonly', 'visible', 'editor', 'extends']);
+
+        const extractUuid = (val: any, propName: string) => {
+            if (!val || typeof val !== 'object') return;
+            // Unwrap descriptor: { value: ..., type: ... }
+            if ('value' in val && !('uuid' in val) && !('__uuid__' in val)) {
+                extractUuid(val.value, propName);
+                return;
+            }
+            // Direct ref: { uuid: "..." } or { __uuid__: "..." }
+            const uuid = val.uuid || val.__uuid__;
+            if (uuid && typeof uuid === 'string') {
+                if (!uuidToRefs.has(uuid)) uuidToRefs.set(uuid, []);
+                uuidToRefs.get(uuid)!.push({ nodeUuid, nodeName, componentType: compType, property: propName });
+                return;
+            }
+            // Array of refs
+            if (Array.isArray(val)) {
+                for (const item of val) extractUuid(item, propName);
+            }
+        };
+
+        for (const key of Object.keys(comp)) {
+            if (skip.has(key) || key.startsWith('_')) continue;
+            extractUuid(comp[key], key);
+        }
     }
 
     private async getAssetDependencies(urlOrUUID: string, direction: string = 'dependencies'): Promise<ToolResponse> {

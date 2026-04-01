@@ -92,7 +92,8 @@ export class ComponentTools implements ToolExecutor {
                                 'string', 'number', 'boolean', 'integer', 'float',
                                 'color', 'vec2', 'vec3', 'size',
                                 'node', 'component', 'spriteFrame', 'prefab', 'asset',
-                                'nodeArray', 'colorArray', 'numberArray', 'stringArray'
+                                'nodeArray', 'colorArray', 'numberArray', 'stringArray',
+                                'assetArray', 'spriteFrameArray'
                             ]
                         },
 
@@ -130,7 +131,9 @@ export class ComponentTools implements ToolExecutor {
                                 '• nodeArray: ["uuid1","uuid2"] (array of node UUIDs)\n' +
                                 '• colorArray: [{"r":255,"g":0,"b":0,"a":255}] (array of colors)\n' +
                                 '• numberArray: [1,2,3,4,5] (array of numbers)\n' +
-                                '• stringArray: ["item1","item2"] (array of strings)'
+                                '• stringArray: ["item1","item2"] (array of strings)\n' +
+                                '• assetArray: ["asset-uuid1","asset-uuid2"] (array of asset UUIDs, e.g. cc.SpriteAtlas, cc.Material)\n' +
+                                '• spriteFrameArray: ["sf-uuid1","sf-uuid2"] (array of SpriteFrame UUIDs)'
                         }
                     },
                     required: ['nodeUuid', 'componentType', 'property', 'propertyType', 'value']
@@ -546,6 +549,12 @@ export class ComponentTools implements ToolExecutor {
 
                 // Step 4: Process property values and apply settings
                 const originalValue = propertyInfo.originalValue;
+
+                // Pre-check: null original value means type cannot be reliably verified
+                const wasNull = originalValue === null || originalValue === undefined;
+                const referenceTypes = ['node', 'component', 'spriteFrame', 'prefab', 'asset', 'nodeArray', 'assetArray', 'spriteFrameArray'];
+                const isReferenceType = referenceTypes.includes(propertyType);
+
                 let processedValue: any;
 
                 // Process property values based on explicit propertyType
@@ -688,6 +697,39 @@ export class ComponentTools implements ToolExecutor {
                             throw new Error('StringArray value must be an array');
                         }
                         break;
+                    case 'assetArray':
+                        if (Array.isArray(value)) {
+                            processedValue = value.map((item: any) => {
+                                if (typeof item === 'string') {
+                                    return { uuid: item };
+                                } else if (typeof item === 'object' && item !== null && 'uuid' in item) {
+                                    return { uuid: item.uuid };
+                                } else {
+                                    throw new Error('AssetArray items must be string UUIDs or objects with uuid property');
+                                }
+                            });
+                        } else {
+                            throw new Error('AssetArray value must be an array');
+                        }
+                        break;
+                    case 'spriteFrameArray':
+                        if (Array.isArray(value)) {
+                            processedValue = [];
+                            for (const item of value) {
+                                const uuid = typeof item === 'string' ? item : (item && item.uuid ? item.uuid : null);
+                                if (!uuid) {
+                                    throw new Error('SpriteFrameArray items must be string UUIDs');
+                                }
+                                const sfResult = await resolveSpriteFrameUuid(uuid);
+                                if (sfResult.converted) {
+                                    console.log(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${uuid} → ${sfResult.uuid}`);
+                                }
+                                (processedValue as any[]).push({ uuid: sfResult.uuid });
+                            }
+                        } else {
+                            throw new Error('SpriteFrameArray value must be an array');
+                        }
+                        break;
                     default:
                         throw new Error(`Unsupported property type: ${propertyType}`);
                 }
@@ -698,6 +740,30 @@ export class ComponentTools implements ToolExecutor {
 
                 // Actual expected value for verification (needs special handling for component references)
                 let actualExpectedValue = processedValue;
+
+                // Step 5a: Validate reference UUIDs exist before setting
+                const assetRefTypes = ['spriteFrame', 'prefab', 'asset'];
+                const assetArrayTypes = ['assetArray', 'spriteFrameArray'];
+                if (assetRefTypes.includes(propertyType) && processedValue?.uuid) {
+                    const missing = await this.validateReferenceUuids([processedValue.uuid]);
+                    if (missing.length > 0) {
+                        resolve({ success: false, error: `Asset UUID '${missing[0]}' does not exist in asset database. The asset may have been deleted or moved.` });
+                        return;
+                    }
+                } else if (assetArrayTypes.includes(propertyType) && Array.isArray(processedValue)) {
+                    const uuids = processedValue.map((item: any) => item?.uuid).filter(Boolean);
+                    const missing = await this.validateReferenceUuids(uuids);
+                    if (missing.length > 0) {
+                        resolve({ success: false, error: `Asset UUID(s) not found in asset database: ${missing.join(', ')}. These assets may have been deleted or moved.` });
+                        return;
+                    }
+                } else if (propertyType === 'node' && processedValue?.uuid) {
+                    const nodeExists = await Editor.Message.request('scene', 'query-node', processedValue.uuid).then((n: any) => !!n).catch(() => false);
+                    if (!nodeExists) {
+                        resolve({ success: false, error: `Node UUID '${processedValue.uuid}' does not exist in current scene.` });
+                        return;
+                    }
+                }
 
                 // Step 5: Get original node data to build correct path
                 const rawNodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
@@ -727,6 +793,9 @@ export class ComponentTools implements ToolExecutor {
                     });
                     return;
                 }
+
+                // Snapshot non-null properties before change
+                const beforeNonNull = this.snapshotNonNullProps(rawNodeData.__comps__[rawComponentIndex]);
 
                 // Build correct property path
                 let propertyPath = `__comps__.${rawComponentIndex}.${property}`;
@@ -1010,6 +1079,39 @@ export class ComponentTools implements ToolExecutor {
                             value: processedValue  // Keep [{uuid: "..."}, {uuid: "..."}] format
                         }
                     });
+                } else if ((propertyType === 'assetArray' || propertyType === 'spriteFrameArray') && Array.isArray(processedValue)) {
+                    // Special handling for asset arrays - set entire array in one request
+                    console.log(`[ComponentTools] Setting asset array (${propertyType}):`, processedValue);
+
+                    // Determine asset type based on property name
+                    let assetType = 'cc.Asset'; // default
+                    if (property.toLowerCase().includes('atlas')) {
+                        assetType = 'cc.SpriteAtlas';
+                    } else if (property.toLowerCase().includes('spriteframe') || propertyType === 'spriteFrameArray') {
+                        assetType = 'cc.SpriteFrame';
+                    } else if (property.toLowerCase().includes('texture')) {
+                        assetType = 'cc.Texture2D';
+                    } else if (property.toLowerCase().includes('material')) {
+                        assetType = 'cc.Material';
+                    } else if (property.toLowerCase().includes('clip')) {
+                        assetType = 'cc.AudioClip';
+                    } else if (property.toLowerCase().includes('prefab')) {
+                        assetType = 'cc.Prefab';
+                    } else if (property.toLowerCase().includes('font')) {
+                        assetType = 'cc.Font';
+                    }
+
+                    // Set entire array at once with proper per-element dump format
+                    await Editor.Message.request('scene', 'set-property', {
+                        uuid: nodeUuid,
+                        path: propertyPath,
+                        dump: {
+                            value: processedValue.map((item: any) => ({
+                                value: item,    // { uuid: "..." }
+                                type: assetType
+                            }))
+                        }
+                    });
                 } else if (propertyType === 'colorArray' && Array.isArray(processedValue)) {
                     // Special handling for color arrays
                     const colorArrayValue = processedValue.map((item: any) => {
@@ -1047,15 +1149,32 @@ export class ComponentTools implements ToolExecutor {
 
                 const verification = await this.verifyPropertyChange(nodeUuid, componentType, property, originalValue, actualExpectedValue);
 
+                // Check for lost properties
+                let lostProperties: string[] = [];
+                try {
+                    const afterRawData = await Editor.Message.request('scene', 'query-node', nodeUuid);
+                    if (afterRawData?.__comps__?.[rawComponentIndex]) {
+                        const afterNonNull = this.snapshotNonNullProps(afterRawData.__comps__[rawComponentIndex]);
+                        lostProperties = beforeNonNull.filter((p: string) => p !== property && !afterNonNull.includes(p));
+                    }
+                } catch { /* ignore snapshot errors */ }
+
+                const stillNull = verification.actualValue === null || verification.actualValue === undefined;
+                const nullSetFailed = wasNull && isReferenceType && stillNull;
+
                 resolve({
-                    success: true,
-                    message: `Successfully set ${componentType}.${property}`,
+                    success: !nullSetFailed,
+                    message: nullSetFailed
+                        ? `Set ${componentType}.${property} failed — value is still null after operation`
+                        : `Successfully set ${componentType}.${property}`,
                     data: {
                         nodeUuid,
                         componentType,
                         property,
                         actualValue: verification.actualValue,
-                        changeVerified: verification.verified
+                        changeVerified: verification.verified,
+                        ...(wasNull && isReferenceType && { nullWarning: `Property '${property}' was null before set — verify propertyType '${propertyType}' is correct` }),
+                        ...(lostProperties.length > 0 && { lostProperties, warning: `Properties lost after change: ${lostProperties.join(', ')}` })
                     }
                 });
 
@@ -1069,6 +1188,28 @@ export class ComponentTools implements ToolExecutor {
         });
     }
 
+
+    private async validateReferenceUuids(uuids: string[]): Promise<string[]> {
+        const missing: string[] = [];
+        for (const uuid of uuids) {
+            const info = await Editor.Message.request('asset-db', 'query-asset-info', uuid).catch(() => null);
+            if (!info) missing.push(uuid);
+        }
+        return missing;
+    }
+
+    private snapshotNonNullProps(rawComp: any): string[] {
+        if (!rawComp) return [];
+        const skip = new Set(['__type__', 'cid', 'node', 'uuid', 'name', '_name', '_objFlags', '_enabled', 'enabled', 'type', 'readonly', 'visible', 'editor', 'extends', '__scriptAsset']);
+        return Object.keys(rawComp).filter(key => {
+            if (skip.has(key) || key.startsWith('_')) return false;
+            const val = rawComp[key];
+            if (val === null || val === undefined) return false;
+            // Unwrap Cocos descriptor objects: { value: ..., type: ... }
+            if (typeof val === 'object' && 'value' in val) return val.value !== null && val.value !== undefined;
+            return true;
+        });
+    }
 
     private async attachScript(nodeUuid: string, scriptPath: string): Promise<ToolResponse> {
         return new Promise(async (resolve) => {
