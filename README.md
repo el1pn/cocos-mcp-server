@@ -19,12 +19,12 @@ Restart Cocos Creator, then open `Extension > Cocos MCP Server` and click **Star
 
 ### HTTP (recommended)
 
-**Claude CLI:**
+**Claude Code CLI:**
 ```
 claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
 ```
 
-**Claude Desktop / Claude Code:**
+**Claude Desktop:**
 ```json
 {
   "mcpServers": {
@@ -36,7 +36,7 @@ claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
 }
 ```
 
-**Cursor / VS Code:**
+**Other clients** (Cursor, VS Code, Trae, Windsurf, Codex, ...):
 ```json
 {
   "mcpServers": {
@@ -49,7 +49,7 @@ claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
 
 ### Stdio (via proxy)
 
-For clients that only support stdio transport:
+Only use this if your client does not support HTTP transport:
 
 ```json
 {
@@ -105,6 +105,86 @@ Read-only snapshots available via `resources/read`:
 | `cocos://hierarchy` | Current scene node tree |
 | `cocos://selection` | Selected nodes and assets |
 | `cocos://logs/latest` | Recent server log entries |
+
+## When to Use MCP
+
+MCP adds the most value where manual work is repetitive or time-consuming. Use the right tool for each job.
+
+### High-value use cases
+
+**Understand the scene without clicking through nodes:**
+```
+"Find all nodes with cc.Button but no cc.AudioSource"
+"Which nodes reference assets from the tournament/ folder?"
+"List all components on node PopupReward"
+```
+
+**Create repeated structures:**
+```
+"Create 8 identical slot items with Sprite, Label, and Button"
+"Scaffold a popup prefab with standard background, title, close button"
+```
+
+**Write script + attach in one step:**
+```
+"Write a RewardController script, attach it to node Popup,
+ set duration = 0.3 and maxItems = 5"
+```
+
+**Bulk property changes:**
+```
+"Set fontSize = 28 on all cc.Label nodes in this scene"
+"Disable all Button components inside prefab ShopPanel"
+```
+
+**Audit & integrity checks:**
+```
+"Find assets in ui/ that are no longer referenced"
+"Scan scene for component properties pointing to deleted assets"
+```
+
+### Better done manually in the Editor
+
+| Task | Why |
+|------|-----|
+| Dragging assets into array properties | Visual feedback, drag-drop is faster |
+| Pixel-level position/size tweaks | Requires visual judgment |
+| First-time layout with unknown structure | Need to see it while building |
+| Spine animations, particle effects | Not representable via API |
+
+### Recommended workflow
+
+```
+AI queries scene structure        (MCP)
+    ↓
+AI writes + attaches scripts      (Write file → MCP attach)
+    ↓
+AI sets scalar properties         (MCP set)
+    ↓
+Dev assigns array assets, tweaks  (Manual in Editor)
+    ↓
+AI audits result for missing refs  (MCP scan)
+```
+
+### Design-to-scene pipeline (Figma)
+
+When Figma layers use consistent naming (`btn_`, `lbl_`, `img_`, `panel_`), AI can build the full node hierarchy automatically:
+
+```
+Figma layer names → AI infer Cocos component types
+    ↓
+Asset names → UUID lookup in asset-db
+    ↓
+MCP creates node hierarchy + sets all properties
+    ↓
+Reference image overlay for visual comparison
+    ↓
+Dev does final pixel tweaks
+```
+
+Figma does not need to mirror the Cocos node structure exactly — AI handles the transformation. Consistent **naming conventions** matter more than hierarchy.
+
+Figma works well for UI screens (lobby, shop, popups, HUD). For gameplay elements (characters, particles, tilemaps), use engine-native tools.
 
 ## Settings
 
