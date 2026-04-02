@@ -119,6 +119,8 @@ export interface MCPClient {
     id: string;
     lastActivity: Date;
     userAgent?: string;
+    protocolVersion?: string;
+    initialized?: boolean;
 }
 
 export type { LogEntry, LogLevel } from '../logger';
@@ -127,4 +129,3 @@ export interface ToolExecutor {
     getTools(): ToolDefinition[];
     execute(toolName: string, args: any): Promise<ToolResponse>;
 }
-

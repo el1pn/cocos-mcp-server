@@ -19,6 +19,14 @@ Restart Cocos Creator, then open `Extension > Cocos MCP Server` and click **Star
 
 ### HTTP (recommended)
 
+Implements MCP Streamable HTTP (`/mcp`) with:
+
+- `POST /mcp` for JSON-RPC messages
+- `GET /mcp` for SSE stream
+- `DELETE /mcp` for session termination
+- Session header: `Mcp-Session-Id`
+- Protocol header: `MCP-Protocol-Version`
+
 **Claude Code CLI:**
 ```
 claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
@@ -45,6 +53,50 @@ claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
     }
   }
 }
+```
+
+### SSE (legacy compatibility)
+
+The server also supports legacy SSE transport endpoints:
+
+- `GET /sse`
+- `POST /messages?sessionId=...`
+
+If your client supports modern HTTP MCP, prefer `http://127.0.0.1:3000/mcp`.
+
+### Compliance Smoke Test (curl)
+
+Initialize:
+```bash
+curl -i -X POST http://127.0.0.1:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
+```
+
+Use returned `Mcp-Session-Id` for next calls:
+```bash
+curl -i -X POST http://127.0.0.1:3000/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "MCP-Protocol-Version: 2025-06-18" \
+  -H "Mcp-Session-Id: <session-id>" \
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
+```
+
+Open SSE stream on same endpoint:
+```bash
+curl -N -i -X GET http://127.0.0.1:3000/mcp \
+  -H "Accept: text/event-stream" \
+  -H "MCP-Protocol-Version: 2025-06-18" \
+  -H "Mcp-Session-Id: <session-id>"
+```
+
+Terminate session:
+```bash
+curl -i -X DELETE http://127.0.0.1:3000/mcp \
+  -H "MCP-Protocol-Version: 2025-06-18" \
+  -H "Mcp-Session-Id: <session-id>"
 ```
 
 ### Stdio (via proxy)
@@ -209,4 +261,3 @@ Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 - Cocos Creator 3.8.0+
 - Node.js (bundled with Cocos Creator)
-

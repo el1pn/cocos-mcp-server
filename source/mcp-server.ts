@@ -1,5 +1,6 @@
 import * as http from 'http';
 import * as url from 'url';
+import { randomUUID } from 'crypto';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
 import { logger } from './logger';
 import { SceneTools } from './tools/scene-tools';
@@ -28,10 +29,22 @@ export class MCPServer {
     private static readonly TOOL_EXECUTION_TIMEOUT_MS = 60_000;
     private static readonly MAX_CONCURRENT_TOOLS = 5;
     private static readonly MAX_PORT_RETRIES = 10;
+    private static readonly LATEST_PROTOCOL_VERSION = '2025-06-18';
+    private static readonly DEFAULT_PROTOCOL_VERSION = '2025-03-26';
+    private static readonly LEGACY_PROTOCOL_VERSION = '2024-11-05';
+    private static readonly SESSION_HEADER = 'Mcp-Session-Id';
+    private static readonly PROTOCOL_HEADER = 'MCP-Protocol-Version';
+    private static readonly SUPPORTED_PROTOCOL_VERSIONS = new Set([
+        MCPServer.LATEST_PROTOCOL_VERSION,
+        MCPServer.DEFAULT_PROTOCOL_VERSION,
+        MCPServer.LEGACY_PROTOCOL_VERSION
+    ]);
 
     private settings: MCPServerSettings;
     private httpServer: http.Server | null = null;
     private clients: Map<string, MCPClient> = new Map();
+    private sessionStreams: Map<string, Map<string, http.ServerResponse>> = new Map();
+    private legacySseStreams: Map<string, http.ServerResponse> = new Map();
     private tools: Record<string, any> = {};
     private toolsList: ToolDefinition[] = [];
     private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
@@ -185,8 +198,8 @@ export class MCPServer {
         
         // Set CORS headers
         res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+        res.setHeader('Access-Control-Allow-Headers', `Content-Type, Authorization, ${MCPServer.PROTOCOL_HEADER}, ${MCPServer.SESSION_HEADER}`);
         res.setHeader('Content-Type', 'application/json');
         
         if (req.method === 'OPTIONS') {
@@ -194,10 +207,18 @@ export class MCPServer {
             res.end();
             return;
         }
+
+        if (!this.validateRequestOrigin(req, res)) {
+            return;
+        }
         
         try {
-            if (pathname === '/mcp' && req.method === 'POST') {
-                await this.handleMCPRequest(req, res);
+            if (pathname === '/mcp') {
+                await this.handleMCPTransportRequest(req, res);
+            } else if (pathname === '/sse' && req.method === 'GET') {
+                this.handleSSEConnection(req, res);
+            } else if (pathname === '/messages' && req.method === 'POST') {
+                await this.handleSSEMessageRequest(req, res, parsedUrl.query);
             } else if (pathname === '/health' && req.method === 'GET') {
                 res.writeHead(200);
                 res.end(JSON.stringify({ status: 'ok', tools: this.toolsList.length }));
@@ -216,13 +237,347 @@ export class MCPServer {
             res.end(JSON.stringify({ error: 'Internal server error' }));
         }
     }
+
+    private validateRequestOrigin(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+        const origin = this.getHeader(req, 'origin');
+        if (!origin || origin === 'null') {
+            return true;
+        }
+
+        if (this.settings.allowedOrigins?.includes('*') || this.settings.allowedOrigins?.includes(origin)) {
+            return true;
+        }
+
+        try {
+            const parsed = new URL(origin);
+            if (parsed.hostname === '127.0.0.1' || parsed.hostname === 'localhost') {
+                return true;
+            }
+        } catch {
+            // fall through
+        }
+
+        res.writeHead(403);
+        res.end(JSON.stringify({ error: `Origin not allowed: ${origin}` }));
+        return false;
+    }
+
+    private getHeader(req: http.IncomingMessage, headerName: string): string | undefined {
+        const value = req.headers[headerName.toLowerCase()];
+        if (Array.isArray(value)) return value[0];
+        return value;
+    }
+
+    private acceptsContentType(acceptHeader: string, requiredType: string): boolean {
+        if (!acceptHeader) {
+            return false;
+        }
+        const normalized = acceptHeader.toLowerCase();
+        return normalized.includes('*/*') || normalized.includes(requiredType.toLowerCase());
+    }
+
+    private validateMCPPostHeaders(req: http.IncomingMessage, res: http.ServerResponse): boolean {
+        const accept = this.getHeader(req, 'accept') || '';
+        if (!this.acceptsContentType(accept, 'application/json') || !this.acceptsContentType(accept, 'text/event-stream')) {
+            res.writeHead(406);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32600,
+                    message: 'POST /mcp requires Accept header containing both application/json and text/event-stream'
+                }
+            }));
+            return false;
+        }
+
+        const contentType = (this.getHeader(req, 'content-type') || '').toLowerCase();
+        if (!contentType.includes('application/json')) {
+            res.writeHead(415);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32600,
+                    message: 'POST /mcp requires Content-Type: application/json'
+                }
+            }));
+            return false;
+        }
+
+        return true;
+    }
+
+    private isJsonRpcRequestMessage(message: any): boolean {
+        return !!message && typeof message === 'object' && typeof message.method === 'string';
+    }
+
+    private isJsonRpcNotification(message: any): boolean {
+        return this.isJsonRpcRequestMessage(message) && (message.id === undefined || message.id === null);
+    }
+
+    private isJsonRpcResponseMessage(message: any): boolean {
+        if (!message || typeof message !== 'object') return false;
+        if (typeof message.method === 'string') return false;
+        if (message.id === undefined || message.id === null) return false;
+        return Object.prototype.hasOwnProperty.call(message, 'result') || Object.prototype.hasOwnProperty.call(message, 'error');
+    }
+
+    private async handleMCPTransportRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        if (req.method === 'POST') {
+            await this.handleMCPRequest(req, res);
+            return;
+        }
+
+        if (req.method === 'GET') {
+            this.handleMCPStreamRequest(req, res);
+            return;
+        }
+
+        if (req.method === 'DELETE') {
+            this.handleMCPDeleteSession(req, res);
+            return;
+        }
+
+        res.setHeader('Allow', 'GET, POST, DELETE, OPTIONS');
+        res.writeHead(405);
+        res.end(JSON.stringify({ error: 'Method not allowed' }));
+    }
+
+    private handleMCPStreamRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
+        const session = this.validateSessionHeader(req, res, true);
+        if (!session) return;
+
+        const accept = this.getHeader(req, 'accept') || '';
+        if (!this.acceptsContentType(accept, 'text/event-stream')) {
+            res.writeHead(406);
+            res.end(JSON.stringify({ error: 'GET /mcp requires Accept: text/event-stream' }));
+            return;
+        }
+        if (!session.initialized) {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: `Session is not initialized: ${session.id}` }));
+            return;
+        }
+
+        this.setupSSEHeaders(res);
+        res.setHeader(MCPServer.PROTOCOL_HEADER, session.protocolVersion || MCPServer.DEFAULT_PROTOCOL_VERSION);
+        res.setHeader(MCPServer.SESSION_HEADER, session.id);
+        res.writeHead(200);
+
+        const streamId = randomUUID();
+        const sessionStreamSet = this.sessionStreams.get(session.id) || new Map<string, http.ServerResponse>();
+        sessionStreamSet.set(streamId, res);
+        this.sessionStreams.set(session.id, sessionStreamSet);
+
+        session.lastActivity = new Date();
+        this.clients.set(session.id, session);
+        res.write(': connected\n\n');
+
+        req.on('close', () => {
+            const streams = this.sessionStreams.get(session.id);
+            if (!streams) return;
+            streams.delete(streamId);
+            if (streams.size === 0) {
+                this.sessionStreams.delete(session.id);
+            }
+        });
+    }
+
+    private handleMCPDeleteSession(req: http.IncomingMessage, res: http.ServerResponse): void {
+        const session = this.validateSessionHeader(req, res, true);
+        if (!session) return;
+
+        const streams = this.sessionStreams.get(session.id);
+        if (streams) {
+            for (const [_streamId, stream] of streams.entries()) {
+                try {
+                    stream.end();
+                } catch {
+                    // no-op
+                }
+            }
+            this.sessionStreams.delete(session.id);
+        }
+
+        this.clients.delete(session.id);
+        res.writeHead(204);
+        res.end();
+    }
+
+    private setupSSEHeaders(res: http.ServerResponse): void {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.setHeader('X-Accel-Buffering', 'no');
+    }
+
+    private negotiateProtocolVersion(messageProtocol: any, headerProtocol?: string): string | null {
+        const requested = typeof messageProtocol === 'string'
+            ? messageProtocol
+            : (headerProtocol || MCPServer.DEFAULT_PROTOCOL_VERSION);
+        if (!MCPServer.SUPPORTED_PROTOCOL_VERSIONS.has(requested)) {
+            return null;
+        }
+        return requested;
+    }
+
+    private validateSessionHeader(req: http.IncomingMessage, res: http.ServerResponse, required: boolean): MCPClient | null {
+        const sessionId = this.getHeader(req, MCPServer.SESSION_HEADER);
+        if (!sessionId) {
+            if (required) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: `Missing required header: ${MCPServer.SESSION_HEADER}` }));
+            }
+            return null;
+        }
+
+        const session = this.clients.get(sessionId);
+        if (!session) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `Session not found: ${sessionId}` }));
+            return null;
+        }
+
+        return session;
+    }
+
+    private handleSSEConnection(req: http.IncomingMessage, res: http.ServerResponse): void {
+        const clientId = randomUUID();
+        this.setupSSEHeaders(res);
+        res.writeHead(200);
+
+        const client: MCPClient = {
+            id: clientId,
+            lastActivity: new Date(),
+            userAgent: req.headers['user-agent']
+        };
+        this.clients.set(clientId, client);
+        this.legacySseStreams.set(clientId, res);
+
+        this.sendSSEEvent(res, 'endpoint', `/messages?sessionId=${encodeURIComponent(clientId)}`);
+        res.write(': connected\n\n');
+        logger.info(`SSE client connected: ${clientId}`);
+
+        req.on('close', () => {
+            this.legacySseStreams.delete(clientId);
+            this.clients.delete(clientId);
+            logger.info(`SSE client disconnected: ${clientId}`);
+        });
+    }
+
+    private async handleSSEMessageRequest(req: http.IncomingMessage, res: http.ServerResponse, query: any): Promise<void> {
+        const rawSessionId = query?.sessionId;
+        const sessionId = Array.isArray(rawSessionId) ? rawSessionId[0] : rawSessionId;
+        if (!sessionId || typeof sessionId !== 'string') {
+            res.writeHead(400);
+            res.end(JSON.stringify({ error: 'Missing required query parameter: sessionId' }));
+            return;
+        }
+
+        const stream = this.legacySseStreams.get(sessionId);
+        if (!stream) {
+            res.writeHead(404);
+            res.end(JSON.stringify({ error: `SSE session not found: ${sessionId}` }));
+            return;
+        }
+
+        this.readRequestBody(req)
+            .then(async (body) => {
+                try {
+                    let message: any;
+                    try {
+                        message = JSON.parse(body);
+                    } catch (parseError: any) {
+                        if (!this.shouldTryFixJson(body)) {
+                            throw new Error(`JSON parsing failed: ${parseError.message}. Original body: ${body.substring(0, 500)}...`);
+                        }
+                        const fixedBody = this.fixCommonJsonIssues(body);
+                        message = JSON.parse(fixedBody);
+                    }
+
+                    const client = this.clients.get(sessionId);
+                    if (client) {
+                        client.lastActivity = new Date();
+                        this.clients.set(sessionId, client);
+                    }
+
+                    if (message.id === undefined || message.id === null) {
+                        logger.mcp(`Received SSE notification: ${message.method}`);
+                        res.writeHead(202);
+                        res.end();
+                        return;
+                    }
+
+                    const response = await this.handleMessage(message);
+                    this.sendSSEEvent(stream, 'message', JSON.stringify(response));
+
+                    res.writeHead(202);
+                    res.end();
+                } catch (error: any) {
+                    logger.error(`Error handling SSE request: ${error}`);
+                    const parseErrorResponse = {
+                        jsonrpc: '2.0',
+                        id: null,
+                        error: {
+                            code: -32700,
+                            message: `Parse error: ${error.message}`
+                        }
+                    };
+                    this.sendSSEEvent(stream, 'message', JSON.stringify(parseErrorResponse));
+
+                    res.writeHead(202);
+                    res.end();
+                }
+            })
+            .catch((error: any) => {
+                const bodyErrorResponse = {
+                    jsonrpc: '2.0',
+                    id: null,
+                    error: {
+                        code: -32600,
+                        message: error.message || 'Request body too large'
+                    }
+                };
+                this.sendSSEEvent(stream, 'message', JSON.stringify(bodyErrorResponse));
+
+                res.writeHead(202);
+                res.end();
+            });
+    }
+
+    private sendSSEEvent(res: http.ServerResponse, event: string, data: string): void {
+        res.write(`event: ${event}\n`);
+        for (const line of data.split('\n')) {
+            res.write(`data: ${line}\n`);
+        }
+        res.write('\n');
+    }
     
     private async handleMCPRequest(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+        if (!this.validateMCPPostHeaders(req, res)) {
+            return;
+        }
+
+        const headerProtocolVersion = this.getHeader(req, MCPServer.PROTOCOL_HEADER);
+        if (headerProtocolVersion && !MCPServer.SUPPORTED_PROTOCOL_VERSIONS.has(headerProtocolVersion)) {
+            res.writeHead(400);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32600,
+                    message: `Unsupported ${MCPServer.PROTOCOL_HEADER}: ${headerProtocolVersion}`
+                }
+            }));
+            return;
+        }
+
         this.readRequestBody(req)
             .then(async (body) => {
             try {
                 // Enhanced JSON parsing with better error handling
-                let message;
+                let message: any;
                 try {
                     message = JSON.parse(body);
                 } catch (parseError: any) {
@@ -235,15 +590,162 @@ export class MCPServer {
                     message = JSON.parse(fixedBody);
                 }
 
-                // MCP notifications have no 'id' field — respond with 202 Accepted
-                if (message.id === undefined || message.id === null) {
+                const isRequest = this.isJsonRpcRequestMessage(message);
+                const isNotification = this.isJsonRpcNotification(message);
+                const isResponse = this.isJsonRpcResponseMessage(message);
+                if (!isRequest && !isResponse) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message?.id ?? null,
+                        error: {
+                            code: -32600,
+                            message: 'Invalid JSON-RPC message'
+                        }
+                    }));
+                    return;
+                }
+
+                const isInitialize = isRequest && message.method === 'initialize';
+                if (isInitialize) {
+                    const existingSessionId = this.getHeader(req, MCPServer.SESSION_HEADER);
+                    if (existingSessionId) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message?.id ?? null,
+                            error: {
+                                code: -32600,
+                                message: `${MCPServer.SESSION_HEADER} must not be set on initialize`
+                            }
+                        }));
+                        return;
+                    }
+
+                    if (isNotification) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: null,
+                            error: {
+                                code: -32600,
+                                message: 'Initialize must be sent as a JSON-RPC request with a non-null id'
+                            }
+                        }));
+                        return;
+                    }
+
+                    const protocolVersion = this.negotiateProtocolVersion(
+                        message?.params?.protocolVersion,
+                        headerProtocolVersion
+                    );
+                    if (!protocolVersion) {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message?.id ?? null,
+                            error: {
+                                code: -32600,
+                                message: `Unsupported protocol version: ${message?.params?.protocolVersion || headerProtocolVersion}`
+                            }
+                        }));
+                        return;
+                    }
+
+                    const sessionId = randomUUID();
+                    const response = await this.handleMessage(message, { protocolVersion });
+                    const isQueueFull = response.error?.code === -32029;
+                    if (!response.error) {
+                        this.clients.set(sessionId, {
+                            id: sessionId,
+                            lastActivity: new Date(),
+                            userAgent: req.headers['user-agent'],
+                            protocolVersion,
+                            initialized: true
+                        });
+                        res.setHeader(MCPServer.SESSION_HEADER, sessionId);
+                        res.setHeader(MCPServer.PROTOCOL_HEADER, protocolVersion);
+                    }
+
+                    if (isQueueFull) {
+                        res.setHeader('Retry-After', '5');
+                        res.writeHead(429);
+                    } else {
+                        res.writeHead(200);
+                    }
+                    res.end(JSON.stringify(response));
+                    return;
+                }
+
+                const session = this.validateSessionHeader(req, res, true);
+                if (!session) return;
+                if (!session.initialized) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message?.id ?? null,
+                        error: {
+                            code: -32600,
+                            message: `Session is not initialized: ${session.id}`
+                        }
+                    }));
+                    return;
+                }
+
+                const protocolVersion = this.negotiateProtocolVersion(
+                    undefined,
+                    headerProtocolVersion || session.protocolVersion
+                );
+                if (!protocolVersion) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message?.id ?? null,
+                        error: {
+                            code: -32600,
+                            message: `Unsupported protocol version: ${headerProtocolVersion}`
+                        }
+                    }));
+                    return;
+                }
+
+                if (headerProtocolVersion && session.protocolVersion && headerProtocolVersion !== session.protocolVersion) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        jsonrpc: '2.0',
+                        id: message?.id ?? null,
+                        error: {
+                            code: -32600,
+                            message: `${MCPServer.PROTOCOL_HEADER} does not match initialized session version`
+                        }
+                    }));
+                    return;
+                }
+
+                session.lastActivity = new Date();
+                if (!session.protocolVersion) {
+                    session.protocolVersion = protocolVersion;
+                }
+                this.clients.set(session.id, session);
+
+                res.setHeader(MCPServer.SESSION_HEADER, session.id);
+                res.setHeader(MCPServer.PROTOCOL_HEADER, session.protocolVersion || protocolVersion);
+
+                // MCP notifications/responses must return 202 Accepted when accepted.
+                if (isResponse) {
+                    logger.mcp('Received client JSON-RPC response');
+                    res.writeHead(202);
+                    res.end();
+                    return;
+                }
+                if (isNotification) {
                     logger.mcp(`Received notification: ${message.method}`);
                     res.writeHead(202);
                     res.end();
                     return;
                 }
 
-                const response = await this.handleMessage(message);
+                const response = await this.handleMessage(message, { protocolVersion: session.protocolVersion || protocolVersion });
                 const isQueueFull = response.error?.code === -32029;
                 if (isQueueFull) {
                     res.setHeader('Retry-After', '5');
@@ -278,7 +780,7 @@ export class MCPServer {
         });
     }
 
-    private async handleMessage(message: any): Promise<any> {
+    private async handleMessage(message: any, context?: { protocolVersion?: string }): Promise<any> {
         const { id, method, params } = message;
 
         try {
@@ -308,7 +810,7 @@ export class MCPServer {
                 case 'initialize':
                     // MCP initialization
                     result = {
-                        protocolVersion: '2024-11-05',
+                        protocolVersion: context?.protocolVersion || MCPServer.LATEST_PROTOCOL_VERSION,
                         capabilities: {
                             tools: {},
                             resources: {}
@@ -486,6 +988,25 @@ export class MCPServer {
             logger.info('HTTP server stopped');
         }
 
+        for (const [_sessionId, streams] of this.sessionStreams.entries()) {
+            for (const [_streamId, stream] of streams.entries()) {
+                try {
+                    stream.end();
+                } catch {
+                    // no-op
+                }
+            }
+        }
+
+        for (const [_id, stream] of this.legacySseStreams.entries()) {
+            try {
+                stream.end();
+            } catch {
+                // no-op
+            }
+        }
+        this.sessionStreams.clear();
+        this.legacySseStreams.clear();
         this.clients.clear();
     }
 
@@ -493,7 +1014,7 @@ export class MCPServer {
         return {
             running: !!this.httpServer,
             port: this.settings.port,
-            clients: 0 // HTTP is stateless, no persistent clients
+            clients: this.clients.size
         };
     }
 
