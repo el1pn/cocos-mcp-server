@@ -207,15 +207,22 @@ export class ProjectTools implements ToolExecutor {
     }
 
     private async executeAssetQuery(args: any): Promise<ToolResponse> {
+        const resolvedAssetPath = this.resolveAssetPathArg(args);
         switch (args.action) {
             case 'get_info':
-                return await this.getAssetInfo(args.assetPath);
+                if (!resolvedAssetPath) {
+                    return { success: false, error: 'Missing required parameter: assetPath' };
+                }
+                return await this.getAssetInfo(resolvedAssetPath);
             case 'get_assets':
                 return await this.getAssets(args.type, args.folder);
             case 'find_by_name':
                 return await this.findAssetByName(args);
             case 'get_details':
-                return await this.getAssetDetails(args.assetPath, args.includeSubAssets);
+                if (!resolvedAssetPath) {
+                    return { success: false, error: 'Missing required parameter: assetPath' };
+                }
+                return await this.getAssetDetails(resolvedAssetPath, args.includeSubAssets);
             case 'query_path':
                 return await this.queryAssetPath(args.url);
             case 'query_uuid':
@@ -225,6 +232,13 @@ export class ProjectTools implements ToolExecutor {
             default:
                 throw new Error(`Unknown asset_query action: ${args.action}`);
         }
+    }
+
+    private resolveAssetPathArg(args: any): string | undefined {
+        const candidate = args?.assetPath;
+        if (typeof candidate !== 'string') return undefined;
+        const trimmed = candidate.trim();
+        return trimmed.length > 0 ? trimmed : undefined;
     }
 
     private async executeAssetCrud(args: any): Promise<ToolResponse> {
@@ -404,6 +418,14 @@ export class ProjectTools implements ToolExecutor {
 
     private async importAsset(sourcePath: string, targetFolder: string): Promise<ToolResponse> {
         return new Promise((resolve) => {
+            if (!sourcePath || typeof sourcePath !== 'string') {
+                resolve({ success: false, error: 'Missing required parameter: sourcePath' });
+                return;
+            }
+            if (!targetFolder || typeof targetFolder !== 'string') {
+                resolve({ success: false, error: 'Missing required parameter: targetFolder' });
+                return;
+            }
             if (!fs.existsSync(sourcePath)) {
                 resolve({ success: false, error: 'Source file not found' });
                 return;
@@ -429,33 +451,32 @@ export class ProjectTools implements ToolExecutor {
     }
 
     private async getAssetInfo(assetPath: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'query-asset-info', assetPath).then((assetInfo: any) => {
-                if (!assetInfo) {
-                    throw new Error('Asset not found');
-                }
+        try {
+            const assetInfo: any = await Editor.Message.request('asset-db', 'query-asset-info', assetPath);
+            if (!assetInfo) {
+                throw new Error('Asset not found');
+            }
 
-                const info: AssetInfo = {
-                    name: assetInfo.name,
-                    uuid: assetInfo.uuid,
-                    path: assetInfo.url,
-                    type: assetInfo.type,
-                    size: assetInfo.size,
-                    isDirectory: assetInfo.isDirectory
+            const info: AssetInfo = {
+                name: assetInfo.name,
+                uuid: assetInfo.uuid,
+                path: assetInfo.url,
+                type: assetInfo.type,
+                size: assetInfo.size,
+                isDirectory: assetInfo.isDirectory
+            };
+
+            if (assetInfo.meta) {
+                info.meta = {
+                    ver: assetInfo.meta.ver,
+                    importer: assetInfo.meta.importer
                 };
+            }
 
-                if (assetInfo.meta) {
-                    info.meta = {
-                        ver: assetInfo.meta.ver,
-                        importer: assetInfo.meta.importer
-                    };
-                }
-
-                resolve({ success: true, data: info });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            return { success: true, data: info };
+        } catch (err: any) {
+            return { success: false, error: err?.message || String(err) };
+        }
     }
 
     private async getAssets(type: string = 'all', folder: string = 'db://assets'): Promise<ToolResponse> {

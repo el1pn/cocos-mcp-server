@@ -160,17 +160,16 @@ export class MCPServer {
     }
 
     public async executeToolCall(toolName: string, args: any): Promise<any> {
-        const normalizedArgs = this.normalizeToolArguments(args);
         const executor = this.toolExecutors.get(toolName);
         if (executor) {
-            return await executor(normalizedArgs);
+            return await executor(args);
         }
 
         // Fallback: try to find the tool in any executor
         for (const [_category, toolSet] of Object.entries(this.tools)) {
             const tools = toolSet.getTools();
             if (tools.some((t: any) => t.name === toolName)) {
-                return await toolSet.execute(toolName, normalizedArgs);
+                return await toolSet.execute(toolName, args);
             }
         }
 
@@ -1130,71 +1129,6 @@ export class MCPServer {
             return false;
         }
         return body.includes('\'') || body.includes(',}') || body.includes(',]') || body.includes('\n') || body.includes('\t');
-    }
-
-    /**
-     * Parameter alias map: common LLM hallucination → canonical parameter name.
-     * Only applied when the canonical parameter is absent.
-     */
-    private static readonly PARAM_ALIASES: Record<string, string> = {
-        // action aliases
-        operation: 'action',
-        command: 'action',
-        method: 'action',
-        // node UUID aliases
-        node_uuid: 'nodeUuid',
-        nodeId: 'nodeUuid',
-        node_id: 'nodeUuid',
-        id: 'nodeUuid',
-        // component aliases
-        component: 'componentType',
-        comp: 'componentType',
-        componentName: 'componentType',
-        // path aliases
-        filePath: 'url',
-        file: 'url',
-        assetPath: 'url',
-        // parent aliases
-        parent: 'parentUuid',
-        parent_uuid: 'parentUuid',
-        parentId: 'parentUuid',
-    };
-
-    /**
-     * Action value alias map: common LLM hallucination → canonical action value.
-     */
-    private static readonly ACTION_ALIASES: Record<string, string> = {
-        remove: 'delete',
-        destroy: 'delete',
-        list: 'get_list',
-        info: 'get_info',
-        find: 'find_by_name',
-    };
-
-    private normalizeToolArguments(args: any): any {
-        if (!args || typeof args !== 'object' || Array.isArray(args)) {
-            return args;
-        }
-
-        const normalized = { ...args };
-
-        // Apply parameter name aliases (only when canonical is absent)
-        for (const [alias, canonical] of Object.entries(MCPServer.PARAM_ALIASES)) {
-            if (normalized[canonical] === undefined && normalized[alias] !== undefined) {
-                normalized[canonical] = normalized[alias];
-                delete normalized[alias];
-            }
-        }
-
-        // Apply action value aliases
-        if (typeof normalized.action === 'string') {
-            const actionAlias = MCPServer.ACTION_ALIASES[normalized.action];
-            if (actionAlias) {
-                normalized.action = actionAlias;
-            }
-        }
-
-        return normalized;
     }
 
     private async enqueueToolExecution(toolName: string, args: any): Promise<any> {
