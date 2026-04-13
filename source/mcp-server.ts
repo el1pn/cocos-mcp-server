@@ -29,15 +29,17 @@ export class MCPServer {
     private static readonly TOOL_EXECUTION_TIMEOUT_MS = 60_000;
     private static readonly MAX_CONCURRENT_TOOLS = 5;
     private static readonly MAX_PORT_RETRIES = 10;
-    private static readonly LATEST_PROTOCOL_VERSION = '2025-06-18';
-    private static readonly DEFAULT_PROTOCOL_VERSION = '2025-03-26';
-    private static readonly LEGACY_PROTOCOL_VERSION = '2024-11-05';
+    private static readonly LATEST_PROTOCOL_VERSION = '2025-11-25';
+    private static readonly DEFAULT_PROTOCOL_VERSION = '2025-06-18';
+    private static readonly LEGACY_PROTOCOL_VERSION = '2025-03-26';
+    private static readonly OLDEST_PROTOCOL_VERSION = '2024-11-05';
     private static readonly SESSION_HEADER = 'Mcp-Session-Id';
     private static readonly PROTOCOL_HEADER = 'MCP-Protocol-Version';
     private static readonly SUPPORTED_PROTOCOL_VERSIONS = new Set([
         MCPServer.LATEST_PROTOCOL_VERSION,
         MCPServer.DEFAULT_PROTOCOL_VERSION,
-        MCPServer.LEGACY_PROTOCOL_VERSION
+        MCPServer.LEGACY_PROTOCOL_VERSION,
+        MCPServer.OLDEST_PROTOCOL_VERSION
     ]);
 
     private settings: MCPServerSettings;
@@ -852,11 +854,19 @@ export class MCPServer {
                             version: '1.0.0'
                         },
                         instructions: 'You are connected to a running Cocos Creator editor via MCP. ' +
-                            'ALWAYS use MCP tools for ANY Cocos Creator operation — including scene, node, component, prefab, asset, project, and editor tasks. ' +
-                            'NEVER directly edit .scene, .prefab, .meta, or other Cocos Creator data files. These files have complex internal formats (UUIDs, references, indices) that break easily when edited manually, and direct edits will be out of sync with the running editor. ' +
-                            'The ONLY files you should edit directly are TypeScript/JavaScript source code files (.ts, .js) such as game scripts and components. For everything else, use MCP tools. ' +
-                            'When the user asks about Cocos Creator game development, always query the editor for real-time data (scene tree, node properties, asset lists) instead of guessing. ' +
-                            'All tools use an "action" parameter to specify the operation. ' +
+                            'Always inspect the current scene/prefab structure before making modifications, and query real-time editor data instead of guessing. ' +
+                            'Always use MCP/editor APIs for scene, node, component, prefab, asset, project, and editor operations. ' +
+                            'Do not directly edit serialized Cocos files (.scene, .prefab, .meta, and related data files). ' +
+                            'The only files allowed for direct text editing are TypeScript/JavaScript source files (.ts, .js). ' +
+                            'All tools use an "action" parameter to specify operations. ' +
+                            'After creating or restructuring UI nodes, apply responsive defaults (anchors, widget constraints, and layout), and prefer ui_apply_responsive_defaults immediately for consistency. ' +
+                            'Prefer reusable prefab edits at the prefab asset source level; use scene-local overrides only when necessary. ' +
+                            'Keep node names semantic, short, and consistent with component roles. ' +
+                            'When hierarchy or node names change, verify and update script references and lookup paths. ' +
+                            'Validate node/component/asset references after edits to ensure there are no missing links. ' +
+                            'Save and reload touched scene/prefab files before finishing to confirm serialization stability. ' +
+                            'Report performed changes clearly, including affected nodes, components, constraints, and presets. ' +
+                            'If requirements are ambiguous, ask for clarification instead of guessing layout behavior. ' +
                             'MCP Resources available: cocos://hierarchy (scene tree), cocos://selection (current selection), cocos://logs/latest (server logs). ' +
                             'Use batch_execute to run multiple operations in one call for efficiency. ' +
                             'Key tools: scene_management (action: get_current/get_list/open/save/create/close/get_hierarchy), ' +
@@ -866,6 +876,7 @@ export class MCPServer {
                             'component_manage (action: add/remove/attach_script), ' +
                             'component_query (action: get_all/get_info/get_available), ' +
                             'set_component_property (modify component properties), ' +
+                            'ui_apply_responsive_defaults (apply responsive widget/layout/anchor presets), ' +
                             'prefab_lifecycle (action: create/instantiate/update/duplicate), ' +
                             'prefab_query (action: get_list/load/get_info/validate), ' +
                             'asset_query (action: get_info/get_assets/find_by_name/get_details/query_path/query_uuid/query_url), ' +

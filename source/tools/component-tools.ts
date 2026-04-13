@@ -138,6 +138,50 @@ export class ComponentTools implements ToolExecutor {
                     },
                     required: ['nodeUuid', 'componentType', 'property', 'propertyType', 'value']
                 }
+            },
+            {
+                name: 'ui_apply_responsive_defaults',
+                description: 'Apply responsive UI defaults on a node by ensuring UITransform/Widget/Layout are configured consistently. Presets: full_stretch, top_bar, bottom_bar, vertical_list, horizontal_list.',
+                inputSchema: {
+                    type: 'object',
+                    properties: {
+                        nodeUuid: {
+                            type: 'string',
+                            description: 'Target node UUID'
+                        },
+                        preset: {
+                            type: 'string',
+                            enum: ['full_stretch', 'top_bar', 'bottom_bar', 'vertical_list', 'horizontal_list'],
+                            default: 'full_stretch',
+                            description: 'Responsive preset to apply'
+                        },
+                        marginLeft: {
+                            type: 'number',
+                            default: 0
+                        },
+                        marginRight: {
+                            type: 'number',
+                            default: 0
+                        },
+                        marginTop: {
+                            type: 'number',
+                            default: 0
+                        },
+                        marginBottom: {
+                            type: 'number',
+                            default: 0
+                        },
+                        spacingX: {
+                            type: 'number',
+                            default: 0
+                        },
+                        spacingY: {
+                            type: 'number',
+                            default: 0
+                        }
+                    },
+                    required: ['nodeUuid']
+                }
             }
         ];
     }
@@ -172,8 +216,165 @@ export class ComponentTools implements ToolExecutor {
             }
             case 'set_component_property':
                 return await this.setComponentProperty(args);
+            case 'ui_apply_responsive_defaults':
+                return await this.applyResponsiveDefaults(args);
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
+        }
+    }
+
+    private async applyResponsiveDefaults(args: any): Promise<ToolResponse> {
+        const nodeUuid = String(args?.nodeUuid || '');
+        const preset = String(args?.preset || 'full_stretch');
+        if (!nodeUuid) {
+            return { success: false, error: 'Missing required parameter: nodeUuid' };
+        }
+
+        const marginLeft = Number(args?.marginLeft ?? 0);
+        const marginRight = Number(args?.marginRight ?? 0);
+        const marginTop = Number(args?.marginTop ?? 0);
+        const marginBottom = Number(args?.marginBottom ?? 0);
+        const spacingX = Number(args?.spacingX ?? 0);
+        const spacingY = Number(args?.spacingY ?? 0);
+
+        const applied: string[] = [];
+        const warnings: string[] = [];
+
+        try {
+            const ensureResult = await this.addComponent(nodeUuid, 'cc.UITransform');
+            if (!ensureResult.success) {
+                return { success: false, error: ensureResult.error || 'Failed to ensure cc.UITransform component' };
+            }
+
+            await this.applyComponentPropertyOrThrow(nodeUuid, 'cc.UITransform', 'anchorPoint', 'vec2', this.getAnchorByPreset(preset));
+            applied.push('cc.UITransform.anchorPoint');
+
+            await this.ensureWidget(nodeUuid);
+            const widgetConfig = this.getWidgetConfigByPreset(preset);
+            const widgetProps = [
+                { property: 'isAlignLeft', propertyType: 'boolean', value: widgetConfig.isAlignLeft },
+                { property: 'isAlignRight', propertyType: 'boolean', value: widgetConfig.isAlignRight },
+                { property: 'isAlignTop', propertyType: 'boolean', value: widgetConfig.isAlignTop },
+                { property: 'isAlignBottom', propertyType: 'boolean', value: widgetConfig.isAlignBottom },
+                { property: 'left', propertyType: 'number', value: marginLeft },
+                { property: 'right', propertyType: 'number', value: marginRight },
+                { property: 'top', propertyType: 'number', value: marginTop },
+                { property: 'bottom', propertyType: 'number', value: marginBottom }
+            ];
+            for (const item of widgetProps) {
+                const result = await this.setComponentProperty({
+                    nodeUuid,
+                    componentType: 'cc.Widget',
+                    property: item.property,
+                    propertyType: item.propertyType,
+                    value: item.value
+                });
+                if (!result.success) {
+                    warnings.push(`cc.Widget.${item.property}: ${result.error || 'unknown error'}`);
+                } else {
+                    applied.push(`cc.Widget.${item.property}`);
+                }
+            }
+
+            if (preset === 'vertical_list' || preset === 'horizontal_list') {
+                await this.ensureLayout(nodeUuid);
+                const layoutType = preset === 'vertical_list' ? 1 : 0;
+                const layoutProps = [
+                    { property: 'type', propertyType: 'integer', value: layoutType },
+                    { property: 'resizeMode', propertyType: 'integer', value: 2 },
+                    { property: 'spacingX', propertyType: 'number', value: spacingX },
+                    { property: 'spacingY', propertyType: 'number', value: spacingY }
+                ];
+                for (const item of layoutProps) {
+                    const result = await this.setComponentProperty({
+                        nodeUuid,
+                        componentType: 'cc.Layout',
+                        property: item.property,
+                        propertyType: item.propertyType,
+                        value: item.value
+                    });
+                    if (!result.success) {
+                        warnings.push(`cc.Layout.${item.property}: ${result.error || 'unknown error'}`);
+                    } else {
+                        applied.push(`cc.Layout.${item.property}`);
+                    }
+                }
+            }
+
+            return {
+                success: warnings.length === 0,
+                message: `Applied responsive preset '${preset}'`,
+                warning: warnings.length > 0 ? warnings.join('\n') : undefined,
+                data: {
+                    nodeUuid,
+                    preset,
+                    applied,
+                    warningCount: warnings.length
+                }
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                error: error?.message || `Failed to apply responsive preset '${preset}'`
+            };
+        }
+    }
+
+    private async ensureWidget(nodeUuid: string): Promise<void> {
+        const result = await this.addComponent(nodeUuid, 'cc.Widget');
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to ensure cc.Widget');
+        }
+    }
+
+    private async ensureLayout(nodeUuid: string): Promise<void> {
+        const result = await this.addComponent(nodeUuid, 'cc.Layout');
+        if (!result.success) {
+            throw new Error(result.error || 'Failed to ensure cc.Layout');
+        }
+    }
+
+    private async applyComponentPropertyOrThrow(
+        nodeUuid: string,
+        componentType: string,
+        property: string,
+        propertyType: string,
+        value: any
+    ): Promise<void> {
+        const result = await this.setComponentProperty({
+            nodeUuid,
+            componentType,
+            property,
+            propertyType,
+            value
+        });
+        if (!result.success) {
+            throw new Error(result.error || `Failed to set ${componentType}.${property}`);
+        }
+    }
+
+    private getAnchorByPreset(preset: string): { x: number; y: number } {
+        switch (preset) {
+            case 'top_bar':
+                return { x: 0.5, y: 1 };
+            case 'bottom_bar':
+                return { x: 0.5, y: 0 };
+            default:
+                return { x: 0.5, y: 0.5 };
+        }
+    }
+
+    private getWidgetConfigByPreset(preset: string): { isAlignLeft: boolean; isAlignRight: boolean; isAlignTop: boolean; isAlignBottom: boolean } {
+        switch (preset) {
+            case 'top_bar':
+                return { isAlignLeft: true, isAlignRight: true, isAlignTop: true, isAlignBottom: false };
+            case 'bottom_bar':
+                return { isAlignLeft: true, isAlignRight: true, isAlignTop: false, isAlignBottom: true };
+            case 'vertical_list':
+            case 'horizontal_list':
+            case 'full_stretch':
+            default:
+                return { isAlignLeft: true, isAlignRight: true, isAlignTop: true, isAlignBottom: true };
         }
     }
 
