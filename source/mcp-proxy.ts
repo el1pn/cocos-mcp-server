@@ -8,10 +8,10 @@
  *   node dist/mcp-proxy.js [port]
  *   MCP_PORT=3000 node dist/mcp-proxy.js
  *
- * Claude Desktop config example:
+ * Claude Desktop config example (Cocos Creator 3.x):
  *   {
  *     "mcpServers": {
- *       "cocos-creator": {
+ *       "cocos-creator-3x": {
  *         "command": "node",
  *         "args": ["/path/to/cocos-mcp-server/dist/mcp-proxy.js", "3000"]
  *       }

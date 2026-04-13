@@ -27,16 +27,16 @@ Implements MCP Streamable HTTP (`/mcp`) with:
 - Session header: `Mcp-Session-Id`
 - Protocol header: `MCP-Protocol-Version`
 
-**Claude Code CLI:**
+**Claude Code CLI (Cocos Creator 3.x):**
 ```
-claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
+claude mcp add --transport http cocos-creator-3x http://127.0.0.1:3000/mcp
 ```
 
 **Claude Desktop:**
 ```json
 {
   "mcpServers": {
-    "cocos-creator": {
+    "cocos-creator-3x": {
       "type": "http",
       "url": "http://127.0.0.1:3000/mcp"
     }
@@ -48,7 +48,7 @@ claude mcp add --transport http cocos-creator http://127.0.0.1:3000/mcp
 ```json
 {
   "mcpServers": {
-    "cocos-creator": {
+    "cocos-creator-3x": {
       "url": "http://localhost:3000/mcp"
     }
   }
@@ -63,6 +63,7 @@ The server also supports legacy SSE transport endpoints:
 - `POST /messages?sessionId=...`
 
 If your client supports modern HTTP MCP, prefer `http://127.0.0.1:3000/mcp`.
+For clear naming, use an MCP server key like `cocos-creator-3x` (this plugin targets Cocos Creator 3.8+).
 
 ### Compliance Smoke Test (curl)
 
@@ -106,7 +107,7 @@ Only use this if your client does not support HTTP transport:
 ```json
 {
   "mcpServers": {
-    "cocos-creator": {
+    "cocos-creator-3x": {
       "command": "node",
       "args": ["/path/to/cocos-mcp-server/dist/mcp-proxy.js", "3000"]
     }
