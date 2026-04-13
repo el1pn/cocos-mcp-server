@@ -501,7 +501,40 @@ export class MCPServer {
                         this.clients.set(sessionId, client);
                     }
 
-                    if (message.id === undefined || message.id === null) {
+                    const isRequest = this.isJsonRpcRequestMessage(message);
+                    const isNotification = this.isJsonRpcNotification(message);
+                    const isInitialize = isRequest && message.method === 'initialize';
+                    if (isInitialize) {
+                        const protocolVersion = this.negotiateProtocolVersion(message?.params?.protocolVersion);
+                        if (!protocolVersion) {
+                            const unsupportedResponse = {
+                                jsonrpc: '2.0',
+                                id: message?.id ?? null,
+                                error: {
+                                    code: -32600,
+                                    message: `Unsupported protocol version: ${message?.params?.protocolVersion}`
+                                }
+                            };
+                            this.sendSSEEvent(stream, 'message', JSON.stringify(unsupportedResponse));
+                            res.writeHead(202);
+                            res.end();
+                            return;
+                        }
+
+                        const response = await this.handleMessage(message, { protocolVersion });
+                        const client = this.clients.get(sessionId);
+                        if (client && !response.error) {
+                            client.protocolVersion = protocolVersion;
+                            client.initialized = true;
+                            this.clients.set(sessionId, client);
+                        }
+                        this.sendSSEEvent(stream, 'message', JSON.stringify(response));
+                        res.writeHead(202);
+                        res.end();
+                        return;
+                    }
+
+                    if (isNotification) {
                         logger.mcp(`Received SSE notification: ${message.method}`);
                         res.writeHead(202);
                         res.end();
@@ -809,7 +842,7 @@ export class MCPServer {
                 case 'initialize':
                     // MCP initialization
                     result = {
-                        protocolVersion: context?.protocolVersion || MCPServer.LATEST_PROTOCOL_VERSION,
+                        protocolVersion: context?.protocolVersion || MCPServer.DEFAULT_PROTOCOL_VERSION,
                         capabilities: {
                             tools: {},
                             resources: {}
