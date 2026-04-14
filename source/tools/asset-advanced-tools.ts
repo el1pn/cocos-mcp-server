@@ -237,68 +237,65 @@ export class AssetAdvancedTools implements ToolExecutor {
     }
 
     private async batchImportAssets(args: any): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                const fs = require('fs');
-                const path = require('path');
+        try {
+            const fs = require('fs');
+            const path = require('path');
 
-                if (!fs.existsSync(args.sourceDirectory)) {
-                    resolve({ success: false, error: 'Source directory does not exist' });
-                    return;
-                }
-
-                const files = this.getFilesFromDirectory(
-                    args.sourceDirectory,
-                    args.fileFilter || [],
-                    args.recursive || false
-                );
-
-                const importResults: any[] = [];
-                let successCount = 0;
-                let errorCount = 0;
-
-                for (const filePath of files) {
-                    try {
-                        const fileName = path.basename(filePath);
-                        const targetPath = `${args.targetDirectory}/${fileName}`;
-
-                        const result = await Editor.Message.request('asset-db', 'import-asset',
-                            filePath, targetPath, {
-                                overwrite: args.overwrite || false,
-                                rename: !(args.overwrite || false)
-                            });
-
-                        importResults.push({
-                            source: filePath,
-                            target: targetPath,
-                            success: true,
-                            uuid: result?.uuid
-                        });
-                        successCount++;
-                    } catch (err: any) {
-                        importResults.push({
-                            source: filePath,
-                            success: false,
-                            error: err.message
-                        });
-                        errorCount++;
-                    }
-                }
-
-                resolve({
-                    success: true,
-                    data: {
-                        totalFiles: files.length,
-                        successCount: successCount,
-                        errorCount: errorCount,
-                        results: importResults,
-                        message: `Batch import completed: ${successCount} success, ${errorCount} errors`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
+            if (!fs.existsSync(args.sourceDirectory)) {
+                return { success: false, error: 'Source directory does not exist' };
             }
-        });
+
+            const files = this.getFilesFromDirectory(
+                args.sourceDirectory,
+                args.fileFilter || [],
+                args.recursive || false
+            );
+
+            const importResults: any[] = [];
+            let successCount = 0;
+            let errorCount = 0;
+
+            for (const filePath of files) {
+                try {
+                    const fileName = path.basename(filePath);
+                    const targetPath = `${args.targetDirectory}/${fileName}`;
+
+                    const result = await Editor.Message.request('asset-db', 'import-asset',
+                        filePath, targetPath, {
+                            overwrite: args.overwrite || false,
+                            rename: !(args.overwrite || false)
+                        });
+
+                    importResults.push({
+                        source: filePath,
+                        target: targetPath,
+                        success: true,
+                        uuid: result?.uuid
+                    });
+                    successCount++;
+                } catch (err: any) {
+                    importResults.push({
+                        source: filePath,
+                        success: false,
+                        error: err.message
+                    });
+                    errorCount++;
+                }
+            }
+
+            return {
+                success: true,
+                data: {
+                    totalFiles: files.length,
+                    successCount: successCount,
+                    errorCount: errorCount,
+                    results: importResults,
+                    message: `Batch import completed: ${successCount} success, ${errorCount} errors`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private getFilesFromDirectory(dirPath: string, fileFilter: string[], recursive: boolean): string[] {
@@ -325,90 +322,86 @@ export class AssetAdvancedTools implements ToolExecutor {
     }
 
     private async batchDeleteAssets(urls: string[]): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                const deleteResults: any[] = [];
-                let successCount = 0;
-                let errorCount = 0;
+        try {
+            const deleteResults: any[] = [];
+            let successCount = 0;
+            let errorCount = 0;
 
-                for (const url of urls) {
-                    try {
-                        await Editor.Message.request('asset-db', 'delete-asset', url);
-                        deleteResults.push({
-                            url: url,
-                            success: true
-                        });
-                        successCount++;
-                    } catch (err: any) {
-                        deleteResults.push({
-                            url: url,
-                            success: false,
-                            error: err.message
-                        });
-                        errorCount++;
-                    }
+            for (const url of urls) {
+                try {
+                    await Editor.Message.request('asset-db', 'delete-asset', url);
+                    deleteResults.push({
+                        url: url,
+                        success: true
+                    });
+                    successCount++;
+                } catch (err: any) {
+                    deleteResults.push({
+                        url: url,
+                        success: false,
+                        error: err.message
+                    });
+                    errorCount++;
                 }
-
-                resolve({
-                    success: true,
-                    data: {
-                        totalAssets: urls.length,
-                        successCount: successCount,
-                        errorCount: errorCount,
-                        results: deleteResults,
-                        message: `Batch delete completed: ${successCount} success, ${errorCount} errors`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
             }
-        });
+
+            return {
+                success: true,
+                data: {
+                    totalAssets: urls.length,
+                    successCount: successCount,
+                    errorCount: errorCount,
+                    results: deleteResults,
+                    message: `Batch delete completed: ${successCount} success, ${errorCount} errors`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async validateAssetReferences(directory: string = 'db://assets'): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                // Get all assets in directory
-                const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
+        try {
+            // Get all assets in directory
+            const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
 
-                const brokenReferences: any[] = [];
-                const validReferences: any[] = [];
+            const brokenReferences: any[] = [];
+            const validReferences: any[] = [];
 
-                for (const asset of assets) {
-                    try {
-                        const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
-                        if (assetInfo) {
-                            validReferences.push({
-                                url: asset.url,
-                                uuid: asset.uuid,
-                                name: asset.name
-                            });
-                        }
-                    } catch (err) {
-                        brokenReferences.push({
+            for (const asset of assets) {
+                try {
+                    const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
+                    if (assetInfo) {
+                        validReferences.push({
                             url: asset.url,
                             uuid: asset.uuid,
-                            name: asset.name,
-                            error: (err as Error).message
+                            name: asset.name
                         });
                     }
+                } catch (err) {
+                    brokenReferences.push({
+                        url: asset.url,
+                        uuid: asset.uuid,
+                        name: asset.name,
+                        error: (err as Error).message
+                    });
                 }
-
-                resolve({
-                    success: true,
-                    data: {
-                        directory: directory,
-                        totalAssets: assets.length,
-                        validReferences: validReferences.length,
-                        brokenReferences: brokenReferences.length,
-                        brokenAssets: brokenReferences,
-                        message: `Validation completed: ${brokenReferences.length} broken references found`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
             }
-        });
+
+            return {
+                success: true,
+                data: {
+                    directory: directory,
+                    totalAssets: assets.length,
+                    validReferences: validReferences.length,
+                    brokenReferences: brokenReferences.length,
+                    brokenAssets: brokenReferences,
+                    message: `Validation completed: ${brokenReferences.length} broken references found`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async scanSceneMissingRefs(): Promise<ToolResponse> {
@@ -817,66 +810,64 @@ export class AssetAdvancedTools implements ToolExecutor {
     }
 
     private async exportAssetManifest(directory: string = 'db://assets', format: string = 'json', includeMetadata: boolean = true): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
+        try {
+            const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
 
-                const manifest: any[] = [];
+            const manifest: any[] = [];
 
-                for (const asset of assets) {
-                    const manifestEntry: any = {
-                        name: asset.name,
-                        url: asset.url,
-                        uuid: asset.uuid,
-                        type: asset.type,
-                        size: (asset as any).size || 0,
-                        isDirectory: asset.isDirectory || false
-                    };
+            for (const asset of assets) {
+                const manifestEntry: any = {
+                    name: asset.name,
+                    url: asset.url,
+                    uuid: asset.uuid,
+                    type: asset.type,
+                    size: (asset as any).size || 0,
+                    isDirectory: asset.isDirectory || false
+                };
 
-                    if (includeMetadata) {
-                        try {
-                            const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
-                            if (assetInfo && assetInfo.meta) {
-                                manifestEntry.meta = assetInfo.meta;
-                            }
-                        } catch (err) {
-                            // Skip metadata if not available
+                if (includeMetadata) {
+                    try {
+                        const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
+                        if (assetInfo && assetInfo.meta) {
+                            manifestEntry.meta = assetInfo.meta;
                         }
+                    } catch (err) {
+                        // Skip metadata if not available
                     }
-
-                    manifest.push(manifestEntry);
                 }
 
-                let exportData: string;
-                switch (format) {
-                    case 'json':
-                        exportData = JSON.stringify(manifest, null, 2);
-                        break;
-                    case 'csv':
-                        exportData = this.convertToCSV(manifest);
-                        break;
-                    case 'xml':
-                        exportData = this.convertToXML(manifest);
-                        break;
-                    default:
-                        exportData = JSON.stringify(manifest, null, 2);
-                }
-
-                resolve({
-                    success: true,
-                    data: {
-                        directory: directory,
-                        format: format,
-                        assetCount: manifest.length,
-                        includeMetadata: includeMetadata,
-                        manifest: exportData,
-                        message: `Asset manifest exported with ${manifest.length} assets`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
+                manifest.push(manifestEntry);
             }
-        });
+
+            let exportData: string;
+            switch (format) {
+                case 'json':
+                    exportData = JSON.stringify(manifest, null, 2);
+                    break;
+                case 'csv':
+                    exportData = this.convertToCSV(manifest);
+                    break;
+                case 'xml':
+                    exportData = this.convertToXML(manifest);
+                    break;
+                default:
+                    exportData = JSON.stringify(manifest, null, 2);
+            }
+
+            return {
+                success: true,
+                data: {
+                    directory: directory,
+                    format: format,
+                    assetCount: manifest.length,
+                    includeMetadata: includeMetadata,
+                    manifest: exportData,
+                    message: `Asset manifest exported with ${manifest.length} assets`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private convertToCSV(data: any[]): string {

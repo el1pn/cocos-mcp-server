@@ -415,96 +415,92 @@ export class SceneViewTools implements ToolExecutor {
     }
 
     private async getSceneViewStatus(): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                // Gather all view status information
-                const [
-                    gizmoTool,
-                    gizmoPivot,
-                    gizmoCoordinate,
-                    viewMode2D3D,
-                    gridVisible,
-                    iconGizmo3D,
-                    iconGizmoSize
-                ] = await Promise.allSettled([
-                    this.queryGizmoToolName(),
-                    this.queryGizmoPivot(),
-                    this.queryGizmoCoordinate(),
-                    this.queryViewMode2D3D(),
-                    this.queryGridVisible(),
-                    this.queryIconGizmo3D(),
-                    this.queryIconGizmoSize()
-                ]);
+        try {
+            // Gather all view status information
+            const [
+                gizmoTool,
+                gizmoPivot,
+                gizmoCoordinate,
+                viewMode2D3D,
+                gridVisible,
+                iconGizmo3D,
+                iconGizmoSize
+            ] = await Promise.allSettled([
+                this.queryGizmoToolName(),
+                this.queryGizmoPivot(),
+                this.queryGizmoCoordinate(),
+                this.queryViewMode2D3D(),
+                this.queryGridVisible(),
+                this.queryIconGizmo3D(),
+                this.queryIconGizmoSize()
+            ]);
 
-                const status: any = {
-                    timestamp: new Date().toISOString()
-                };
+            const status: any = {
+                timestamp: new Date().toISOString()
+            };
 
-                // Extract data from fulfilled promises
-                if (gizmoTool.status === 'fulfilled' && gizmoTool.value.success) {
-                    status.gizmoTool = gizmoTool.value.data.currentTool;
-                }
-                if (gizmoPivot.status === 'fulfilled' && gizmoPivot.value.success) {
-                    status.gizmoPivot = gizmoPivot.value.data.currentPivot;
-                }
-                if (gizmoCoordinate.status === 'fulfilled' && gizmoCoordinate.value.success) {
-                    status.coordinate = gizmoCoordinate.value.data.coordinate;
-                }
-                if (viewMode2D3D.status === 'fulfilled' && viewMode2D3D.value.success) {
-                    status.is2D = viewMode2D3D.value.data.is2D;
-                    status.viewMode = viewMode2D3D.value.data.viewMode;
-                }
-                if (gridVisible.status === 'fulfilled' && gridVisible.value.success) {
-                    status.gridVisible = gridVisible.value.data.visible;
-                }
-                if (iconGizmo3D.status === 'fulfilled' && iconGizmo3D.value.success) {
-                    status.iconGizmo3D = iconGizmo3D.value.data.is3D;
-                }
-                if (iconGizmoSize.status === 'fulfilled' && iconGizmoSize.value.success) {
-                    status.iconGizmoSize = iconGizmoSize.value.data.size;
-                }
-
-                resolve({
-                    success: true,
-                    data: status
-                });
-
-            } catch (err: any) {
-                resolve({
-                    success: false,
-                    error: `Failed to get scene view status: ${err.message}`
-                });
+            // Extract data from fulfilled promises
+            if (gizmoTool.status === 'fulfilled' && gizmoTool.value.success) {
+                status.gizmoTool = gizmoTool.value.data.currentTool;
             }
-        });
+            if (gizmoPivot.status === 'fulfilled' && gizmoPivot.value.success) {
+                status.gizmoPivot = gizmoPivot.value.data.currentPivot;
+            }
+            if (gizmoCoordinate.status === 'fulfilled' && gizmoCoordinate.value.success) {
+                status.coordinate = gizmoCoordinate.value.data.coordinate;
+            }
+            if (viewMode2D3D.status === 'fulfilled' && viewMode2D3D.value.success) {
+                status.is2D = viewMode2D3D.value.data.is2D;
+                status.viewMode = viewMode2D3D.value.data.viewMode;
+            }
+            if (gridVisible.status === 'fulfilled' && gridVisible.value.success) {
+                status.gridVisible = gridVisible.value.data.visible;
+            }
+            if (iconGizmo3D.status === 'fulfilled' && iconGizmo3D.value.success) {
+                status.iconGizmo3D = iconGizmo3D.value.data.is3D;
+            }
+            if (iconGizmoSize.status === 'fulfilled' && iconGizmoSize.value.success) {
+                status.iconGizmoSize = iconGizmoSize.value.data.size;
+            }
+
+            return {
+                success: true,
+                data: status
+            };
+
+        } catch (err: any) {
+            return {
+                success: false,
+                error: `Failed to get scene view status: ${err.message}`
+            };
+        }
     }
 
     private async resetSceneView(): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                // Reset scene view to default settings
-                const resetActions = [
-                    this.changeGizmoTool('position'),
-                    this.changeGizmoPivot('pivot'),
-                    this.changeGizmoCoordinate('local'),
-                    this.changeViewMode2D3D(false), // 3D mode
-                    this.setGridVisible(true),
-                    this.setIconGizmo3D(true),
-                    this.setIconGizmoSize(60)
-                ];
+        try {
+            // Reset scene view to default settings
+            const resetActions = [
+                this.changeGizmoTool('position'),
+                this.changeGizmoPivot('pivot'),
+                this.changeGizmoCoordinate('local'),
+                this.changeViewMode2D3D(false), // 3D mode
+                this.setGridVisible(true),
+                this.setIconGizmo3D(true),
+                this.setIconGizmoSize(60)
+            ];
 
-                await Promise.all(resetActions);
+            await Promise.all(resetActions);
 
-                resolve({
-                    success: true,
-                    message: 'Scene view reset to default settings'
-                });
+            return {
+                success: true,
+                message: 'Scene view reset to default settings'
+            };
 
-            } catch (err: any) {
-                resolve({
-                    success: false,
-                    error: `Failed to reset scene view: ${err.message}`
-                });
-            }
-        });
+        } catch (err: any) {
+            return {
+                success: false,
+                error: `Failed to reset scene view: ${err.message}`
+            };
+        }
     }
 }

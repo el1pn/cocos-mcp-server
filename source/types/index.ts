@@ -12,10 +12,35 @@ export interface ServerStatus {
     clients: number;
 }
 
+export interface JSONSchemaProperty {
+    type?: 'string' | 'number' | 'boolean' | 'object' | 'array' | 'null' | Array<'string' | 'number' | 'boolean' | 'object' | 'array' | 'null'>;
+    description?: string;
+    enum?: ReadonlyArray<string | number | boolean | null>;
+    default?: unknown;
+    minimum?: number;
+    maximum?: number;
+    minLength?: number;
+    maxLength?: number;
+    items?: JSONSchemaProperty;
+    properties?: Record<string, JSONSchemaProperty>;
+    required?: readonly string[];
+    additionalProperties?: boolean | JSONSchemaProperty;
+    oneOf?: JSONSchemaProperty[];
+    anyOf?: JSONSchemaProperty[];
+    allOf?: JSONSchemaProperty[];
+    [extension: `x-${string}`]: unknown;
+}
+
+export interface ToolInputSchema extends JSONSchemaProperty {
+    type: 'object';
+    properties: Record<string, JSONSchemaProperty>;
+    required?: readonly string[];
+}
+
 export interface ToolDefinition {
     name: string;
     description: string;
-    inputSchema: any;
+    inputSchema: ToolInputSchema;
 }
 
 export interface ToolResponse {

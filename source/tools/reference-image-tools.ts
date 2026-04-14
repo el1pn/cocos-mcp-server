@@ -1,5 +1,4 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
-import { normalizeAction } from '../utils/action-aliases';
 
 export class ReferenceImageTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -87,7 +86,7 @@ export class ReferenceImageTools implements ToolExecutor {
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
             case 'reference_image_manage': {
-                const action = normalizeAction('reference_image_manage', args.action);
+                const action = args.action;
                 switch (action) {
                     case 'add':
                         return await this.addReferenceImage(args.paths);
@@ -236,43 +235,39 @@ export class ReferenceImageTools implements ToolExecutor {
     }
 
     private async setReferenceImagePosition(x: number, y: number): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                await Editor.Message.request('reference-image', 'set-image-data', 'x', x);
-                await Editor.Message.request('reference-image', 'set-image-data', 'y', y);
+        try {
+            await Editor.Message.request('reference-image', 'set-image-data', 'x', x);
+            await Editor.Message.request('reference-image', 'set-image-data', 'y', y);
 
-                resolve({
-                    success: true,
-                    data: {
-                        x: x,
-                        y: y,
-                        message: `Reference image position set to (${x}, ${y})`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
-            }
-        });
+            return {
+                success: true,
+                data: {
+                    x: x,
+                    y: y,
+                    message: `Reference image position set to (${x}, ${y})`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async setReferenceImageScale(sx: number, sy: number): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                await Editor.Message.request('reference-image', 'set-image-data', 'sx', sx);
-                await Editor.Message.request('reference-image', 'set-image-data', 'sy', sy);
+        try {
+            await Editor.Message.request('reference-image', 'set-image-data', 'sx', sx);
+            await Editor.Message.request('reference-image', 'set-image-data', 'sy', sy);
 
-                resolve({
-                    success: true,
-                    data: {
-                        sx: sx,
-                        sy: sy,
-                        message: `Reference image scale set to (${sx}, ${sy})`
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
-            }
-        });
+            return {
+                success: true,
+                data: {
+                    sx: sx,
+                    sy: sy,
+                    message: `Reference image scale set to (${sx}, ${sy})`
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async setReferenceImageOpacity(opacity: number): Promise<ToolResponse> {
@@ -292,38 +287,34 @@ export class ReferenceImageTools implements ToolExecutor {
     }
 
     private async listReferenceImages(): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                const config = await Editor.Message.request('reference-image', 'query-config');
-                const current = await Editor.Message.request('reference-image', 'query-current');
+        try {
+            const config = await Editor.Message.request('reference-image', 'query-config');
+            const current = await Editor.Message.request('reference-image', 'query-current');
 
-                resolve({
-                    success: true,
-                    data: {
-                        config: config,
-                        current: current,
-                        message: 'Reference image information retrieved'
-                    }
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
-            }
-        });
+            return {
+                success: true,
+                data: {
+                    config: config,
+                    current: current,
+                    message: 'Reference image information retrieved'
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async clearAllReferenceImages(): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            try {
-                // Remove all reference images by calling remove-image without paths
-                await Editor.Message.request('reference-image', 'remove-image');
+        try {
+            // Remove all reference images by calling remove-image without paths
+            await Editor.Message.request('reference-image', 'remove-image');
 
-                resolve({
-                    success: true,
-                    message: 'All reference images cleared'
-                });
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
-            }
-        });
+            return {
+                success: true,
+                message: 'All reference images cleared'
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 }

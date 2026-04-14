@@ -1,7 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, PerformanceStats, ValidationResult, ValidationIssue } from '../types';
+import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
-import { normalizeAction } from '../utils/action-aliases';
 
 export class DebugTools implements ToolExecutor {
     private consoleMessages: ConsoleMessage[] = [];
@@ -15,7 +15,7 @@ export class DebugTools implements ToolExecutor {
         // Intercept Editor console messages
         // Note: Editor.Message.addBroadcastListener may not be available in all versions
         // This is a placeholder for console capture implementation
-        console.log('Console capture setup - implementation depends on Editor API availability');
+        logger.info('Console capture setup - implementation depends on Editor API availability');
     }
 
     private addConsoleMessage(message: any): void {
@@ -152,7 +152,7 @@ export class DebugTools implements ToolExecutor {
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
             case 'debug_console': {
-                const action = normalizeAction('debug_console', args.action);
+                const action = args.action;
                 switch (action) {
                     case 'get_logs':
                         return await this.getConsoleLogs(args.limit, args.filter);

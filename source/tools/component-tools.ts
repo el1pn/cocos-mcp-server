@@ -1,6 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
-import { normalizeAction } from '../utils/action-aliases';
+import { logger } from '../logger';
 
 export class ComponentTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -189,7 +189,7 @@ export class ComponentTools implements ToolExecutor {
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         switch (toolName) {
             case 'component_manage': {
-                const action = normalizeAction('component_manage', args.action);
+                const action = args.action;
                 switch (action) {
                     case 'add':
                         return await this.addComponent(args.nodeUuid, args.componentType);
@@ -202,7 +202,7 @@ export class ComponentTools implements ToolExecutor {
                 }
             }
             case 'component_query': {
-                const action = normalizeAction('component_query', args.action);
+                const action = args.action;
                 switch (action) {
                     case 'get_all':
                         return await this.getComponents(args.nodeUuid);
@@ -379,118 +379,113 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async addComponent(nodeUuid: string, componentType: string): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            // First check if the component already exists on the node
-            const allComponentsInfo = await this.getComponents(nodeUuid);
-            if (allComponentsInfo.success && allComponentsInfo.data?.components) {
-                const existingComponent = allComponentsInfo.data.components.find((comp: any) => comp.type === componentType);
-                if (existingComponent) {
-                    resolve({
-                        success: true,
-                        message: `Component '${componentType}' already exists on node`,
-                        data: {
-                            nodeUuid: nodeUuid,
-                            componentType: componentType,
-                            componentVerified: true,
-                            existing: true
-                        }
-                    });
-                    return;
-                }
+        // First check if the component already exists on the node
+        const allComponentsInfo = await this.getComponents(nodeUuid);
+        if (allComponentsInfo.success && allComponentsInfo.data?.components) {
+            const existingComponent = allComponentsInfo.data.components.find((comp: any) => comp.type === componentType);
+            if (existingComponent) {
+                return {
+                    success: true,
+                    message: `Component '${componentType}' already exists on node`,
+                    data: {
+                        nodeUuid: nodeUuid,
+                        componentType: componentType,
+                        componentVerified: true,
+                        existing: true
+                    }
+                };
             }
-            // Try adding component directly using Editor API
-            Editor.Message.request('scene', 'create-component', {
+        }
+        // Try adding component directly using Editor API
+        try {
+            await Editor.Message.request('scene', 'create-component', {
                 uuid: nodeUuid,
                 component: componentType
-            }).then(async (result: any) => {
-                // Wait for Editor to complete component addition
-                await new Promise(resolve => setTimeout(resolve, 100));
-                // Re-query node info to verify component was actually added
-                try {
-                    const allComponentsInfo2 = await this.getComponents(nodeUuid);
-                    if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
-                        const addedComponent = allComponentsInfo2.data.components.find((comp: any) => comp.type === componentType);
-                        if (addedComponent) {
-                            resolve({
-                                success: true,
-                                message: `Component '${componentType}' added successfully`,
-                                data: {
-                                    nodeUuid: nodeUuid,
-                                    componentType: componentType,
-                                    componentVerified: true,
-                                    existing: false
-                                }
-                            });
-                        } else {
-                            resolve({
-                                success: false,
-                                error: `Component '${componentType}' was not found on node after addition. Available components: ${allComponentsInfo2.data.components.map((c: any) => c.type).join(', ')}`
-                            });
-                        }
-                    } else {
-                        resolve({
-                            success: false,
-                            error: `Failed to verify component addition: ${allComponentsInfo2.error || 'Unable to get node components'}`
-                        });
-                    }
-                } catch (verifyError: any) {
-                    resolve({
-                        success: false,
-                        error: `Failed to verify component addition: ${verifyError.message}`
-                    });
-                }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'addComponentToNode',
-                    args: [nodeUuid, componentType]
-                };
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
             });
-        });
+            // Wait for Editor to complete component addition
+            await new Promise(resolve => setTimeout(resolve, 100));
+            // Re-query node info to verify component was actually added
+            try {
+                const allComponentsInfo2 = await this.getComponents(nodeUuid);
+                if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
+                    const addedComponent = allComponentsInfo2.data.components.find((comp: any) => comp.type === componentType);
+                    if (addedComponent) {
+                        return {
+                            success: true,
+                            message: `Component '${componentType}' added successfully`,
+                            data: {
+                                nodeUuid: nodeUuid,
+                                componentType: componentType,
+                                componentVerified: true,
+                                existing: false
+                            }
+                        };
+                    } else {
+                        return {
+                            success: false,
+                            error: `Component '${componentType}' was not found on node after addition. Available components: ${allComponentsInfo2.data.components.map((c: any) => c.type).join(', ')}`
+                        };
+                    }
+                } else {
+                    return {
+                        success: false,
+                        error: `Failed to verify component addition: ${allComponentsInfo2.error || 'Unable to get node components'}`
+                    };
+                }
+            } catch (verifyError: any) {
+                return {
+                    success: false,
+                    error: `Failed to verify component addition: ${verifyError.message}`
+                };
+            }
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'addComponentToNode',
+                args: [nodeUuid, componentType]
+            };
+            try {
+                const result = await Editor.Message.request('scene', 'execute-scene-script', options);
+                return result as ToolResponse;
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private async removeComponent(nodeUuid: string, componentType: string): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            // 1. Find all components on the node
-            const allComponentsInfo = await this.getComponents(nodeUuid);
-            if (!allComponentsInfo.success || !allComponentsInfo.data?.components) {
-                resolve({ success: false, error: `Failed to get components for node '${nodeUuid}': ${allComponentsInfo.error}` });
-                return;
+        // 1. Find all components on the node
+        const allComponentsInfo = await this.getComponents(nodeUuid);
+        if (!allComponentsInfo.success || !allComponentsInfo.data?.components) {
+            return { success: false, error: `Failed to get components for node '${nodeUuid}': ${allComponentsInfo.error}` };
+        }
+        // 2. Only find components whose type field equals componentType (i.e., cid)
+        const exists = allComponentsInfo.data.components.some((comp: any) => comp.type === componentType);
+        if (!exists) {
+            return { success: false, error: `Component cid '${componentType}' not found on node '${nodeUuid}'. Please use getComponents to get the type field (cid) as componentType.` };
+        }
+        // 3. Remove directly using official API
+        try {
+            await Editor.Message.request('scene', 'remove-component', {
+                uuid: nodeUuid,
+                component: componentType
+            });
+            // 4. Query again to confirm removal
+            const afterRemoveInfo = await this.getComponents(nodeUuid);
+            const stillExists = afterRemoveInfo.success && afterRemoveInfo.data?.components?.some((comp: any) => comp.type === componentType);
+            if (stillExists) {
+                return { success: false, error: `Component cid '${componentType}' was not removed from node '${nodeUuid}'.` };
+            } else {
+                return {
+                    success: true,
+                    message: `Component cid '${componentType}' removed successfully from node '${nodeUuid}'`,
+                    data: { nodeUuid, componentType }
+                };
             }
-            // 2. Only find components whose type field equals componentType (i.e., cid)
-            const exists = allComponentsInfo.data.components.some((comp: any) => comp.type === componentType);
-            if (!exists) {
-                resolve({ success: false, error: `Component cid '${componentType}' not found on node '${nodeUuid}'. Please use getComponents to get the type field (cid) as componentType.` });
-                return;
-            }
-            // 3. Remove directly using official API
-            try {
-                await Editor.Message.request('scene', 'remove-component', {
-                    uuid: nodeUuid,
-                    component: componentType
-                });
-                // 4. Query again to confirm removal
-                const afterRemoveInfo = await this.getComponents(nodeUuid);
-                const stillExists = afterRemoveInfo.success && afterRemoveInfo.data?.components?.some((comp: any) => comp.type === componentType);
-                if (stillExists) {
-                    resolve({ success: false, error: `Component cid '${componentType}' was not removed from node '${nodeUuid}'.` });
-                } else {
-                    resolve({
-                        success: true,
-                        message: `Component cid '${componentType}' removed successfully from node '${nodeUuid}'`,
-                        data: { nodeUuid, componentType }
-                    });
-                }
-            } catch (err: any) {
-                resolve({ success: false, error: `Failed to remove component: ${err.message}` });
-            }
-        });
+        } catch (err: any) {
+            return { success: false, error: `Failed to remove component: ${err.message}` };
+        }
     }
 
     private async getComponents(nodeUuid: string): Promise<ToolResponse> {
@@ -599,11 +594,11 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private extractComponentProperties(component: any): Record<string, any> {
-        console.log(`[extractComponentProperties] Processing component:`, Object.keys(component));
+        logger.info(`[extractComponentProperties] Processing component: ${JSON.stringify(Object.keys(component))}`);
 
         // Check if component has value property, which usually contains the actual component properties
         if (component.value && typeof component.value === 'object') {
-            console.log(`[extractComponentProperties] Found component.value with properties:`, Object.keys(component.value));
+            logger.info(`[extractComponentProperties] Found component.value with properties: ${JSON.stringify(Object.keys(component.value))}`);
             return component.value; // Return value object directly, it contains all component properties
         }
 
@@ -613,24 +608,24 @@ export class ComponentTools implements ToolExecutor {
 
         for (const key in component) {
             if (!excludeKeys.includes(key) && !key.startsWith('_')) {
-                console.log(`[extractComponentProperties] Found direct property '${key}':`, typeof component[key]);
+                logger.info(`[extractComponentProperties] Found direct property '${key}': ${typeof component[key]}`);
                 properties[key] = component[key];
             }
         }
 
-        console.log(`[extractComponentProperties] Final extracted properties:`, Object.keys(properties));
+        logger.info(`[extractComponentProperties] Final extracted properties: ${JSON.stringify(Object.keys(properties))}`);
         return properties;
     }
 
     private async findComponentTypeByUuid(componentUuid: string): Promise<string | null> {
-        console.log(`[findComponentTypeByUuid] Searching for component type with UUID: ${componentUuid}`);
+        logger.info(`[findComponentTypeByUuid] Searching for component type with UUID: ${componentUuid}`);
         if (!componentUuid) {
             return null;
         }
         try {
             const nodeTree = await Editor.Message.request('scene', 'query-node-tree');
             if (!nodeTree) {
-                console.warn('[findComponentTypeByUuid] Failed to query node tree.');
+                logger.warn('[findComponentTypeByUuid] Failed to query node tree.');
                 return null;
             }
 
@@ -650,13 +645,13 @@ export class ComponentTools implements ToolExecutor {
                             // The component UUID is nested in the 'value' property
                             if (compAny.uuid && compAny.uuid.value === componentUuid) {
                                 const componentType = compAny.__type__;
-                                console.log(`[findComponentTypeByUuid] Found component type '${componentType}' for UUID ${componentUuid} on node ${fullNodeData.name?.value}`);
+                                logger.info(`[findComponentTypeByUuid] Found component type '${componentType}' for UUID ${componentUuid} on node ${fullNodeData.name?.value}`);
                                 return componentType;
                             }
                         }
                     }
                 } catch (e) {
-                    console.warn(`[findComponentTypeByUuid] Could not query node ${currentNodeInfo.uuid}:`, e);
+                    logger.warn(`[findComponentTypeByUuid] Could not query node ${currentNodeInfo.uuid}: ${(e as any)?.message ?? String(e)}`);
                 }
 
                 if (currentNodeInfo.children) {
@@ -666,10 +661,10 @@ export class ComponentTools implements ToolExecutor {
                 }
             }
 
-            console.warn(`[findComponentTypeByUuid] Component with UUID ${componentUuid} not found in scene tree.`);
+            logger.warn(`[findComponentTypeByUuid] Component with UUID ${componentUuid} not found in scene tree.`);
             return null;
         } catch (error) {
-            console.error(`[findComponentTypeByUuid] Error while searching for component type:`, error);
+            logger.error(`[findComponentTypeByUuid] Error while searching for component type: ${(error as any)?.message ?? String(error)}`);
             return null;
         }
     }
@@ -677,76 +672,70 @@ export class ComponentTools implements ToolExecutor {
     private async setComponentProperty(args: any): Promise<ToolResponse> {
         const { nodeUuid, componentType, property, propertyType, value } = args;
 
-        return new Promise(async (resolve) => {
+        try {
+            logger.info(`[ComponentTools] Setting ${componentType}.${property} (type: ${propertyType}) = ${JSON.stringify(value)} on node ${nodeUuid}`);
+
+            // Step 0: Detect if this is a node property, redirect to corresponding node method if so
+            const nodeRedirectResult = await this.checkAndRedirectNodeProperties(args);
+            if (nodeRedirectResult) {
+                return nodeRedirectResult;
+            }
+
+            // Step 1: Get component info using the same method as getComponents
+            const componentsResponse = await this.getComponents(nodeUuid);
+            if (!componentsResponse.success || !componentsResponse.data) {
+                return {
+                    success: false,
+                    error: `Failed to get components for node '${nodeUuid}': ${componentsResponse.error}`,
+                    instruction: `Please verify that node UUID '${nodeUuid}' is correct. Use get_all_nodes or find_node_by_name to get the correct node UUID.`
+                };
+            }
+
+            const allComponents = componentsResponse.data.components;
+
+            // Step 2: Find target component
+            let targetComponent = null;
+            const availableTypes: string[] = [];
+
+            for (let i = 0; i < allComponents.length; i++) {
+                const comp = allComponents[i];
+                availableTypes.push(comp.type);
+
+                if (comp.type === componentType) {
+                    targetComponent = comp;
+                    break;
+                }
+            }
+
+            if (!targetComponent) {
+                // Provide more detailed error info and suggestions
+                const instruction = this.generateComponentSuggestion(componentType, availableTypes, property);
+                return {
+                    success: false,
+                    error: `Component '${componentType}' not found on node. Available components: ${availableTypes.join(', ')}`,
+                    instruction: instruction
+                };
+            }
+
+            // Step 3: Auto-detect and convert property values
+            let propertyInfo;
             try {
-                console.log(`[ComponentTools] Setting ${componentType}.${property} (type: ${propertyType}) = ${JSON.stringify(value)} on node ${nodeUuid}`);
+                logger.info(`[ComponentTools] Analyzing property: ${property}`);
+                propertyInfo = this.analyzeProperty(targetComponent, property);
+            } catch (analyzeError: any) {
+                logger.error(`[ComponentTools] Error in analyzeProperty: ${analyzeError?.message ?? String(analyzeError)}`);
+                return {
+                    success: false,
+                    error: `Failed to analyze property '${property}': ${analyzeError.message}`
+                };
+            }
 
-                // Step 0: Detect if this is a node property, redirect to corresponding node method if so
-                const nodeRedirectResult = await this.checkAndRedirectNodeProperties(args);
-                if (nodeRedirectResult) {
-                    resolve(nodeRedirectResult);
-                    return;
-                }
-
-                // Step 1: Get component info using the same method as getComponents
-                const componentsResponse = await this.getComponents(nodeUuid);
-                if (!componentsResponse.success || !componentsResponse.data) {
-                    resolve({
-                        success: false,
-                        error: `Failed to get components for node '${nodeUuid}': ${componentsResponse.error}`,
-                        instruction: `Please verify that node UUID '${nodeUuid}' is correct. Use get_all_nodes or find_node_by_name to get the correct node UUID.`
-                    });
-                    return;
-                }
-
-                const allComponents = componentsResponse.data.components;
-
-                // Step 2: Find target component
-                let targetComponent = null;
-                const availableTypes: string[] = [];
-
-                for (let i = 0; i < allComponents.length; i++) {
-                    const comp = allComponents[i];
-                    availableTypes.push(comp.type);
-
-                    if (comp.type === componentType) {
-                        targetComponent = comp;
-                        break;
-                    }
-                }
-
-                if (!targetComponent) {
-                    // Provide more detailed error info and suggestions
-                    const instruction = this.generateComponentSuggestion(componentType, availableTypes, property);
-                    resolve({
-                        success: false,
-                        error: `Component '${componentType}' not found on node. Available components: ${availableTypes.join(', ')}`,
-                        instruction: instruction
-                    });
-                    return;
-                }
-
-                // Step 3: Auto-detect and convert property values
-                let propertyInfo;
-                try {
-                    console.log(`[ComponentTools] Analyzing property: ${property}`);
-                    propertyInfo = this.analyzeProperty(targetComponent, property);
-                } catch (analyzeError: any) {
-                    console.error(`[ComponentTools] Error in analyzeProperty:`, analyzeError);
-                    resolve({
-                        success: false,
-                        error: `Failed to analyze property '${property}': ${analyzeError.message}`
-                    });
-                    return;
-                }
-
-                if (!propertyInfo.exists) {
-                    resolve({
-                        success: false,
-                        error: `Property '${property}' not found on component '${componentType}'. Available properties: ${propertyInfo.availableProperties.join(', ')}`
-                    });
-                    return;
-                }
+            if (!propertyInfo.exists) {
+                return {
+                    success: false,
+                    error: `Property '${property}' not found on component '${componentType}'. Available properties: ${propertyInfo.availableProperties.join(', ')}`
+                };
+            }
 
                 // Step 4: Process property values and apply settings
                 const originalValue = propertyInfo.originalValue;
@@ -840,7 +829,7 @@ export class ComponentTools implements ToolExecutor {
                         // Auto-convert Texture2D UUID → SpriteFrame UUID
                         const sfResult = await resolveSpriteFrameUuid(value);
                         if (sfResult.converted) {
-                            console.log(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${value} → ${sfResult.uuid}`);
+                            logger.info(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${value} → ${sfResult.uuid}`);
                         }
                         processedValue = { uuid: sfResult.uuid };
                         break;
@@ -923,7 +912,7 @@ export class ComponentTools implements ToolExecutor {
                                 }
                                 const sfResult = await resolveSpriteFrameUuid(uuid);
                                 if (sfResult.converted) {
-                                    console.log(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${uuid} → ${sfResult.uuid}`);
+                                    logger.info(`[ComponentTools] Auto-converted Texture2D UUID to SpriteFrame: ${uuid} → ${sfResult.uuid}`);
                                 }
                                 (processedValue as any[]).push({ uuid: sfResult.uuid });
                             }
@@ -935,9 +924,9 @@ export class ComponentTools implements ToolExecutor {
                         throw new Error(`Unsupported property type: ${propertyType}`);
                 }
 
-                console.log(`[ComponentTools] Converting value: ${JSON.stringify(value)} -> ${JSON.stringify(processedValue)} (type: ${propertyType})`);
-                console.log(`[ComponentTools] Property analysis result: propertyInfo.type="${propertyInfo.type}", propertyType="${propertyType}"`);
-                console.log(`[ComponentTools] Will use color special handling: ${propertyType === 'color' && processedValue && typeof processedValue === 'object'}`);
+                logger.info(`[ComponentTools] Converting value: ${JSON.stringify(value)} -> ${JSON.stringify(processedValue)} (type: ${propertyType})`);
+                logger.info(`[ComponentTools] Property analysis result: propertyInfo.type="${propertyInfo.type}", propertyType="${propertyType}"`);
+                logger.info(`[ComponentTools] Will use color special handling: ${propertyType === 'color' && processedValue && typeof processedValue === 'object'}`);
 
                 // Actual expected value for verification (needs special handling for component references)
                 let actualExpectedValue = processedValue;
@@ -948,32 +937,28 @@ export class ComponentTools implements ToolExecutor {
                 if (assetRefTypes.includes(propertyType) && processedValue?.uuid) {
                     const missing = await this.validateReferenceUuids([processedValue.uuid]);
                     if (missing.length > 0) {
-                        resolve({ success: false, error: `Asset UUID '${missing[0]}' does not exist in asset database. The asset may have been deleted or moved.` });
-                        return;
+                        return { success: false, error: `Asset UUID '${missing[0]}' does not exist in asset database. The asset may have been deleted or moved.` };
                     }
                 } else if (assetArrayTypes.includes(propertyType) && Array.isArray(processedValue)) {
                     const uuids = processedValue.map((item: any) => item?.uuid).filter(Boolean);
                     const missing = await this.validateReferenceUuids(uuids);
                     if (missing.length > 0) {
-                        resolve({ success: false, error: `Asset UUID(s) not found in asset database: ${missing.join(', ')}. These assets may have been deleted or moved.` });
-                        return;
+                        return { success: false, error: `Asset UUID(s) not found in asset database: ${missing.join(', ')}. These assets may have been deleted or moved.` };
                     }
                 } else if (propertyType === 'node' && processedValue?.uuid) {
                     const nodeExists = await Editor.Message.request('scene', 'query-node', processedValue.uuid).then((n: any) => !!n).catch(() => false);
                     if (!nodeExists) {
-                        resolve({ success: false, error: `Node UUID '${processedValue.uuid}' does not exist in current scene.` });
-                        return;
+                        return { success: false, error: `Node UUID '${processedValue.uuid}' does not exist in current scene.` };
                     }
                 }
 
                 // Step 5: Get original node data to build correct path
                 const rawNodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
                 if (!rawNodeData || !rawNodeData.__comps__) {
-                    resolve({
+                    return {
                         success: false,
                         error: `Failed to get raw node data for property setting`
-                    });
-                    return;
+                    };
                 }
 
                 // Find original component index
@@ -988,11 +973,10 @@ export class ComponentTools implements ToolExecutor {
                 }
 
                 if (rawComponentIndex === -1) {
-                    resolve({
+                    return {
                         success: false,
                         error: `Could not find component index for setting property`
-                    });
-                    return;
+                    };
                 }
 
                 // Snapshot non-null properties before change
@@ -1005,12 +989,12 @@ export class ComponentTools implements ToolExecutor {
                 if (propertyType === 'asset' || propertyType === 'spriteFrame' || propertyType === 'prefab' ||
                     (propertyInfo.type === 'asset' && propertyType === 'string')) {
 
-                    console.log(`[ComponentTools] Setting asset reference:`, {
+                    logger.info(`[ComponentTools] Setting asset reference: ${JSON.stringify({
                         value: processedValue,
                         property: property,
                         propertyType: propertyType,
                         path: propertyPath
-                    });
+                    })}`);
 
                     // Determine asset type based on property name
                     let assetType = 'cc.SpriteFrame'; // default
@@ -1080,7 +1064,7 @@ export class ComponentTools implements ToolExecutor {
                         a: processedValue.a !== undefined ? Math.min(255, Math.max(0, Number(processedValue.a))) : 255
                     };
 
-                    console.log(`[ComponentTools] Setting color value:`, colorValue);
+                    logger.info(`[ComponentTools] Setting color value: ${JSON.stringify(colorValue)}`);
 
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
@@ -1138,7 +1122,7 @@ export class ComponentTools implements ToolExecutor {
                     });
                 } else if (propertyType === 'node' && processedValue && typeof processedValue === 'object' && 'uuid' in processedValue) {
                     // Special handling for node references
-                    console.log(`[ComponentTools] Setting node reference with UUID: ${processedValue.uuid}`);
+                    logger.info(`[ComponentTools] Setting node reference with UUID: ${processedValue.uuid}`);
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
@@ -1150,7 +1134,7 @@ export class ComponentTools implements ToolExecutor {
                 } else if (propertyType === 'component' && typeof processedValue === 'string') {
                     // Special handling for component references: find component __id__ via node UUID
                     const targetNodeUuid = processedValue;
-                    console.log(`[ComponentTools] Setting component reference - finding component on node: ${targetNodeUuid}`);
+                    logger.info(`[ComponentTools] Setting component reference - finding component on node: ${targetNodeUuid}`);
 
                     // Get expected component type from current component property metadata
                     let expectedComponentType = '';
@@ -1184,7 +1168,7 @@ export class ComponentTools implements ToolExecutor {
                         throw new Error(`Unable to determine required component type for property '${property}' on component '${componentType}'. Property metadata may not contain type information.`);
                     }
 
-                    console.log(`[ComponentTools] Detected required component type: ${expectedComponentType} for property: ${property}`);
+                    logger.info(`[ComponentTools] Detected required component type: ${expectedComponentType} for property: ${property}`);
 
                     try {
                         // Get target node component info
@@ -1194,10 +1178,10 @@ export class ComponentTools implements ToolExecutor {
                         }
 
                         // Print target node component overview
-                        console.log(`[ComponentTools] Target node ${targetNodeUuid} has ${targetNodeData.__comps__.length} components:`);
+                        logger.info(`[ComponentTools] Target node ${targetNodeUuid} has ${targetNodeData.__comps__.length} components:`);
                         targetNodeData.__comps__.forEach((comp: any, index: number) => {
                             const sceneId = comp.value && comp.value.uuid && comp.value.uuid.value ? comp.value.uuid.value : 'unknown';
-                            console.log(`[ComponentTools] Component ${index}: ${comp.type} (scene_id: ${sceneId})`);
+                            logger.info(`[ComponentTools] Component ${index}: ${comp.type} (scene_id: ${sceneId})`);
                         });
 
                         // Find corresponding component
@@ -1206,27 +1190,27 @@ export class ComponentTools implements ToolExecutor {
 
                         // Find specified type of component in target node _components array
                         // Note: __comps__ and _components indices correspond to each other
-                        console.log(`[ComponentTools] Searching for component type: ${expectedComponentType}`);
+                        logger.info(`[ComponentTools] Searching for component type: ${expectedComponentType}`);
 
                         for (let i = 0; i < targetNodeData.__comps__.length; i++) {
                             const comp = targetNodeData.__comps__[i] as any;
-                            console.log(`[ComponentTools] Checking component ${i}: type=${comp.type}, target=${expectedComponentType}`);
+                            logger.info(`[ComponentTools] Checking component ${i}: type=${comp.type}, target=${expectedComponentType}`);
 
                             if (comp.type === expectedComponentType) {
                                 targetComponent = comp;
-                                console.log(`[ComponentTools] Found matching component at index ${i}: ${comp.type}`);
+                                logger.info(`[ComponentTools] Found matching component at index ${i}: ${comp.type}`);
 
                                 // Get component scene ID from component value.uuid.value
                                 if (comp.value && comp.value.uuid && comp.value.uuid.value) {
                                     componentId = comp.value.uuid.value;
-                                    console.log(`[ComponentTools] Got componentId from comp.value.uuid.value: ${componentId}`);
+                                    logger.info(`[ComponentTools] Got componentId from comp.value.uuid.value: ${componentId}`);
                                 } else {
-                                    console.log(`[ComponentTools] Component structure:`, {
+                                    logger.info(`[ComponentTools] Component structure: ${JSON.stringify({
                                         hasValue: !!comp.value,
                                         hasUuid: !!(comp.value && comp.value.uuid),
                                         hasUuidValue: !!(comp.value && comp.value.uuid && comp.value.uuid.value),
                                         uuidStructure: comp.value ? comp.value.uuid : 'No value'
-                                    });
+                                    })}`);
                                     throw new Error(`Unable to extract component ID from component structure`);
                                 }
 
@@ -1247,7 +1231,7 @@ export class ComponentTools implements ToolExecutor {
                             throw new Error(`Component type '${expectedComponentType}' not found on node ${targetNodeUuid}. Available components: ${availableComponents.join(', ')}`);
                         }
 
-                        console.log(`[ComponentTools] Found component ${expectedComponentType} with scene ID: ${componentId} on node ${targetNodeUuid}`);
+                        logger.info(`[ComponentTools] Found component ${expectedComponentType} with scene ID: ${componentId} on node ${targetNodeUuid}`);
 
                         // Update expected value to actual component ID object format for subsequent verification
                         if (componentId) {
@@ -1266,12 +1250,12 @@ export class ComponentTools implements ToolExecutor {
                         });
 
                     } catch (error) {
-                        console.error(`[ComponentTools] Error setting component reference:`, error);
+                        logger.error(`[ComponentTools] Error setting component reference: ${(error as any)?.message ?? String(error)}`);
                         throw error;
                     }
                 } else if (propertyType === 'nodeArray' && Array.isArray(processedValue)) {
                     // Special handling for node arrays - keep preprocessed format
-                    console.log(`[ComponentTools] Setting node array:`, processedValue);
+                    logger.info(`[ComponentTools] Setting node array: ${JSON.stringify(processedValue)}`);
 
                     await Editor.Message.request('scene', 'set-property', {
                         uuid: nodeUuid,
@@ -1282,7 +1266,7 @@ export class ComponentTools implements ToolExecutor {
                     });
                 } else if ((propertyType === 'assetArray' || propertyType === 'spriteFrameArray') && Array.isArray(processedValue)) {
                     // Special handling for asset arrays - set entire array in one request
-                    console.log(`[ComponentTools] Setting asset array (${propertyType}):`, processedValue);
+                    logger.info(`[ComponentTools] Setting asset array (${propertyType}): ${JSON.stringify(processedValue)}`);
 
                     // Determine asset type based on property name
                     let assetType = 'cc.Asset'; // default
@@ -1360,33 +1344,32 @@ export class ComponentTools implements ToolExecutor {
                     }
                 } catch { /* ignore snapshot errors */ }
 
-                const stillNull = verification.actualValue === null || verification.actualValue === undefined;
-                const nullSetFailed = wasNull && isReferenceType && stillNull;
+            const stillNull = verification.actualValue === null || verification.actualValue === undefined;
+            const nullSetFailed = wasNull && isReferenceType && stillNull;
 
-                resolve({
-                    success: !nullSetFailed,
-                    message: nullSetFailed
-                        ? `Set ${componentType}.${property} failed — value is still null after operation`
-                        : `Successfully set ${componentType}.${property}`,
-                    data: {
-                        nodeUuid,
-                        componentType,
-                        property,
-                        actualValue: verification.actualValue,
-                        changeVerified: verification.verified,
-                        ...(wasNull && isReferenceType && { nullWarning: `Property '${property}' was null before set — verify propertyType '${propertyType}' is correct` }),
-                        ...(lostProperties.length > 0 && { lostProperties, warning: `Properties lost after change: ${lostProperties.join(', ')}` })
-                    }
-                });
+            return {
+                success: !nullSetFailed,
+                message: nullSetFailed
+                    ? `Set ${componentType}.${property} failed — value is still null after operation`
+                    : `Successfully set ${componentType}.${property}`,
+                data: {
+                    nodeUuid,
+                    componentType,
+                    property,
+                    actualValue: verification.actualValue,
+                    changeVerified: verification.verified,
+                    ...(wasNull && isReferenceType && { nullWarning: `Property '${property}' was null before set — verify propertyType '${propertyType}' is correct` }),
+                    ...(lostProperties.length > 0 && { lostProperties, warning: `Properties lost after change: ${lostProperties.join(', ')}` })
+                }
+            };
 
-            } catch (error: any) {
-                console.error(`[ComponentTools] Error setting property:`, error);
-                resolve({
-                    success: false,
-                    error: `Failed to set property: ${error.message}`
-                });
-            }
-        });
+        } catch (error: any) {
+            logger.error(`[ComponentTools] Error setting property: ${error?.message ?? String(error)}`);
+            return {
+                success: false,
+                error: `Failed to set property: ${error.message}`
+            };
+        }
     }
 
 
@@ -1413,81 +1396,79 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async attachScript(nodeUuid: string, scriptPath: string): Promise<ToolResponse> {
-        return new Promise(async (resolve) => {
-            // Extract component class name from script path
-            const scriptName = scriptPath.split('/').pop()?.replace('.ts', '').replace('.js', '');
-            if (!scriptName) {
-                resolve({ success: false, error: 'Invalid script path' });
-                return;
+        // Extract component class name from script path
+        const scriptName = scriptPath.split('/').pop()?.replace('.ts', '').replace('.js', '');
+        if (!scriptName) {
+            return { success: false, error: 'Invalid script path' };
+        }
+        // First check if the script component already exists on the node
+        const allComponentsInfo = await this.getComponents(nodeUuid);
+        if (allComponentsInfo.success && allComponentsInfo.data?.components) {
+            const existingScript = allComponentsInfo.data.components.find((comp: any) => comp.type === scriptName);
+            if (existingScript) {
+                return {
+                    success: true,
+                    message: `Script '${scriptName}' already exists on node`,
+                    data: {
+                        nodeUuid: nodeUuid,
+                        componentName: scriptName,
+                        existing: true
+                    }
+                };
             }
-            // First check if the script component already exists on the node
-            const allComponentsInfo = await this.getComponents(nodeUuid);
-            if (allComponentsInfo.success && allComponentsInfo.data?.components) {
-                const existingScript = allComponentsInfo.data.components.find((comp: any) => comp.type === scriptName);
-                if (existingScript) {
-                    resolve({
+        }
+        // First try using script name directly as component type
+        try {
+            await Editor.Message.request('scene', 'create-component', {
+                uuid: nodeUuid,
+                component: scriptName  // Use script name instead of UUID
+            });
+            // Wait for Editor to complete component addition
+            await new Promise(resolve => setTimeout(resolve, 100));
+            // Re-query node info to verify script was actually added
+            const allComponentsInfo2 = await this.getComponents(nodeUuid);
+            if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
+                const addedScript = allComponentsInfo2.data.components.find((comp: any) => comp.type === scriptName);
+                if (addedScript) {
+                    return {
                         success: true,
-                        message: `Script '${scriptName}' already exists on node`,
+                        message: `Script '${scriptName}' attached successfully`,
                         data: {
                             nodeUuid: nodeUuid,
                             componentName: scriptName,
-                            existing: true
+                            existing: false
                         }
-                    });
-                    return;
-                }
-            }
-            // First try using script name directly as component type
-            Editor.Message.request('scene', 'create-component', {
-                uuid: nodeUuid,
-                component: scriptName  // Use script name instead of UUID
-            }).then(async (result: any) => {
-                // Wait for Editor to complete component addition
-                await new Promise(resolve => setTimeout(resolve, 100));
-                // Re-query node info to verify script was actually added
-                const allComponentsInfo2 = await this.getComponents(nodeUuid);
-                if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
-                    const addedScript = allComponentsInfo2.data.components.find((comp: any) => comp.type === scriptName);
-                    if (addedScript) {
-                        resolve({
-                            success: true,
-                            message: `Script '${scriptName}' attached successfully`,
-                            data: {
-                                nodeUuid: nodeUuid,
-                                componentName: scriptName,
-                                existing: false
-                            }
-                        });
-                    } else {
-                        resolve({
-                            success: false,
-                            error: `Script '${scriptName}' was not found on node after addition. Available components: ${allComponentsInfo2.data.components.map((c: any) => c.type).join(', ')}`
-                        });
-                    }
+                    };
                 } else {
-                    resolve({
+                    return {
                         success: false,
-                        error: `Failed to verify script addition: ${allComponentsInfo2.error || 'Unable to get node components'}`
-                    });
+                        error: `Script '${scriptName}' was not found on node after addition. Available components: ${allComponentsInfo2.data.components.map((c: any) => c.type).join(', ')}`
+                    };
                 }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'attachScript',
-                    args: [nodeUuid, scriptPath]
+            } else {
+                return {
+                    success: false,
+                    error: `Failed to verify script addition: ${allComponentsInfo2.error || 'Unable to get node components'}`
                 };
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch(() => {
-                    resolve({
-                        success: false,
-                        error: `Failed to attach script '${scriptName}': ${err.message}`,
-                        instruction: 'Please ensure the script is properly compiled and exported as a Component class. You can also manually attach the script through the Properties panel in the editor.'
-                    });
-                });
-            });
-        });
+            }
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'attachScript',
+                args: [nodeUuid, scriptPath]
+            };
+            try {
+                const result = await Editor.Message.request('scene', 'execute-scene-script', options);
+                return result as ToolResponse;
+            } catch {
+                return {
+                    success: false,
+                    error: `Failed to attach script '${scriptName}': ${err.message}`,
+                    instruction: 'Please ensure the script is properly compiled and exported as a Component class. You can also manually attach the script through the Properties panel in the editor.'
+                };
+            }
+        }
     }
 
     private async getAvailableComponents(category: string = 'all'): Promise<ToolResponse> {
@@ -1562,7 +1543,7 @@ export class ComponentTools implements ToolExecutor {
 
             return hasValidStructure;
         } catch (error) {
-            console.warn(`[isValidPropertyDescriptor] Error checking property descriptor:`, error);
+            logger.warn(`[isValidPropertyDescriptor] Error checking property descriptor: ${(error as any)?.message ?? String(error)}`);
             return false;
         }
     }
@@ -1692,7 +1673,7 @@ export class ComponentTools implements ToolExecutor {
                     type = 'object';
                 }
             } catch (error) {
-                console.warn(`[analyzeProperty] Error checking property type for: ${JSON.stringify(propertyValue)}`);
+                logger.warn(`[analyzeProperty] Error checking property type for: ${JSON.stringify(propertyValue)}`);
                 type = 'object';
             }
         } else if (propertyValue === null || propertyValue === undefined) {
@@ -1715,120 +1696,6 @@ export class ComponentTools implements ToolExecutor {
             availableProperties,
             originalValue: propertyValue
         };
-    }
-
-    private smartConvertValue(inputValue: any, propertyInfo: any): any {
-        const { type, originalValue } = propertyInfo;
-
-        console.log(`[smartConvertValue] Converting ${JSON.stringify(inputValue)} to type: ${type}`);
-
-        switch (type) {
-            case 'string':
-                return String(inputValue);
-
-            case 'number':
-                return Number(inputValue);
-
-            case 'boolean':
-                if (typeof inputValue === 'boolean') return inputValue;
-                if (typeof inputValue === 'string') {
-                    return inputValue.toLowerCase() === 'true' || inputValue === '1';
-                }
-                return Boolean(inputValue);
-
-            case 'color':
-                // Optimized color handling, supporting multiple input formats
-                if (typeof inputValue === 'string') {
-                    // String format: hex, color names, rgb()/rgba()
-                    return this.parseColorString(inputValue);
-                } else if (typeof inputValue === 'object' && inputValue !== null) {
-                    try {
-                        const inputKeys = Object.keys(inputValue);
-                        // If input is a color object, validate and convert
-                        if (inputKeys.includes('r') || inputKeys.includes('g') || inputKeys.includes('b')) {
-                            return {
-                                r: Math.min(255, Math.max(0, Number(inputValue.r) || 0)),
-                                g: Math.min(255, Math.max(0, Number(inputValue.g) || 0)),
-                                b: Math.min(255, Math.max(0, Number(inputValue.b) || 0)),
-                                a: inputValue.a !== undefined ? Math.min(255, Math.max(0, Number(inputValue.a))) : 255
-                            };
-                        }
-                    } catch (error) {
-                        console.warn(`[smartConvertValue] Invalid color object: ${JSON.stringify(inputValue)}`);
-                    }
-                }
-                // If original value exists, keep original structure and update provided values
-                if (originalValue && typeof originalValue === 'object') {
-                    try {
-                        const inputKeys = typeof inputValue === 'object' && inputValue ? Object.keys(inputValue) : [];
-                        return {
-                            r: inputKeys.includes('r') ? Math.min(255, Math.max(0, Number(inputValue.r))) : (originalValue.r || 255),
-                            g: inputKeys.includes('g') ? Math.min(255, Math.max(0, Number(inputValue.g))) : (originalValue.g || 255),
-                            b: inputKeys.includes('b') ? Math.min(255, Math.max(0, Number(inputValue.b))) : (originalValue.b || 255),
-                            a: inputKeys.includes('a') ? Math.min(255, Math.max(0, Number(inputValue.a))) : (originalValue.a || 255)
-                        };
-                    } catch (error) {
-                        console.warn(`[smartConvertValue] Error processing color with original value: ${error}`);
-                    }
-                }
-                // Default return white
-                console.warn(`[smartConvertValue] Using default white color for invalid input: ${JSON.stringify(inputValue)}`);
-                return { r: 255, g: 255, b: 255, a: 255 };
-
-            case 'vec2':
-                if (typeof inputValue === 'object' && inputValue !== null) {
-                    return {
-                        x: Number(inputValue.x) || originalValue.x || 0,
-                        y: Number(inputValue.y) || originalValue.y || 0
-                    };
-                }
-                return originalValue;
-
-            case 'vec3':
-                if (typeof inputValue === 'object' && inputValue !== null) {
-                    return {
-                        x: Number(inputValue.x) || originalValue.x || 0,
-                        y: Number(inputValue.y) || originalValue.y || 0,
-                        z: Number(inputValue.z) || originalValue.z || 0
-                    };
-                }
-                return originalValue;
-
-            case 'size':
-                if (typeof inputValue === 'object' && inputValue !== null) {
-                    return {
-                        width: Number(inputValue.width) || originalValue.width || 100,
-                        height: Number(inputValue.height) || originalValue.height || 100
-                    };
-                }
-                return originalValue;
-
-            case 'node':
-                if (typeof inputValue === 'string') {
-                    // Node references need special handling
-                    return inputValue;
-                } else if (typeof inputValue === 'object' && inputValue !== null) {
-                    // If already in object form, return UUID or complete object
-                    return inputValue.uuid || inputValue;
-                }
-                return originalValue;
-
-            case 'asset':
-                if (typeof inputValue === 'string') {
-                    // If input is a string path, convert to asset object
-                    return { uuid: inputValue };
-                } else if (typeof inputValue === 'object' && inputValue !== null) {
-                    return inputValue;
-                }
-                return originalValue;
-
-            default:
-                // For unknown types, try to keep original structure
-                if (typeof inputValue === typeof originalValue) {
-                    return inputValue;
-                }
-                return originalValue;
-        }
     }
 
     private parseColorString(colorStr: string): { r: number; g: number; b: number; a: number } {
@@ -1855,35 +1722,35 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async verifyPropertyChange(nodeUuid: string, componentType: string, property: string, originalValue: any, expectedValue: any): Promise<{ verified: boolean; actualValue: any; fullData: any }> {
-        console.log(`[verifyPropertyChange] Starting verification for ${componentType}.${property}`);
-        console.log(`[verifyPropertyChange] Expected value:`, JSON.stringify(expectedValue));
-        console.log(`[verifyPropertyChange] Original value:`, JSON.stringify(originalValue));
+        logger.info(`[verifyPropertyChange] Starting verification for ${componentType}.${property}`);
+        logger.info(`[verifyPropertyChange] Expected value: ${JSON.stringify(expectedValue)}`);
+        logger.info(`[verifyPropertyChange] Original value: ${JSON.stringify(originalValue)}`);
 
         try {
             // Re-get component info for verification
-            console.log(`[verifyPropertyChange] Calling getComponentInfo...`);
+            logger.info(`[verifyPropertyChange] Calling getComponentInfo...`);
             const componentInfo = await this.getComponentInfo(nodeUuid, componentType);
-            console.log(`[verifyPropertyChange] getComponentInfo success:`, componentInfo.success);
+            logger.info(`[verifyPropertyChange] getComponentInfo success: ${componentInfo.success}`);
 
             const allComponents = await this.getComponents(nodeUuid);
-            console.log(`[verifyPropertyChange] getComponents success:`, allComponents.success);
+            logger.info(`[verifyPropertyChange] getComponents success: ${allComponents.success}`);
 
             if (componentInfo.success && componentInfo.data) {
-                console.log(`[verifyPropertyChange] Component data available, extracting property '${property}'`);
+                logger.info(`[verifyPropertyChange] Component data available, extracting property '${property}'`);
                 const allPropertyNames = Object.keys(componentInfo.data.properties || {});
-                console.log(`[verifyPropertyChange] Available properties:`, allPropertyNames);
+                logger.info(`[verifyPropertyChange] Available properties: ${JSON.stringify(allPropertyNames)}`);
                 const propertyData = componentInfo.data.properties?.[property];
-                console.log(`[verifyPropertyChange] Raw property data for '${property}':`, JSON.stringify(propertyData));
+                logger.info(`[verifyPropertyChange] Raw property data for '${property}': ${JSON.stringify(propertyData)}`);
 
                 // Extract actual value from property data
                 let actualValue = propertyData;
-                console.log(`[verifyPropertyChange] Initial actualValue:`, JSON.stringify(actualValue));
+                logger.info(`[verifyPropertyChange] Initial actualValue: ${JSON.stringify(actualValue)}`);
 
                 if (propertyData && typeof propertyData === 'object' && 'value' in propertyData) {
                     actualValue = propertyData.value;
-                    console.log(`[verifyPropertyChange] Extracted actualValue from .value:`, JSON.stringify(actualValue));
+                    logger.info(`[verifyPropertyChange] Extracted actualValue from .value: ${JSON.stringify(actualValue)}`);
                 } else {
-                    console.log(`[verifyPropertyChange] No .value property found, using raw data`);
+                    logger.info(`[verifyPropertyChange] No .value property found, using raw data`);
                 }
 
                 // Fix verification logic: check if actual value matches expected value
@@ -1895,41 +1762,41 @@ export class ComponentTools implements ToolExecutor {
                     const expectedUuid = expectedValue.uuid || '';
                     verified = actualUuid === expectedUuid && expectedUuid !== '';
 
-                    console.log(`[verifyPropertyChange] Reference comparison:`);
-                    console.log(`  - Expected UUID: "${expectedUuid}"`);
-                    console.log(`  - Actual UUID: "${actualUuid}"`);
-                    console.log(`  - UUID match: ${actualUuid === expectedUuid}`);
-                    console.log(`  - UUID not empty: ${expectedUuid !== ''}`);
-                    console.log(`  - Final verified: ${verified}`);
+                    logger.info(`[verifyPropertyChange] Reference comparison:`);
+                    logger.info(`  - Expected UUID: "${expectedUuid}"`);
+                    logger.info(`  - Actual UUID: "${actualUuid}"`);
+                    logger.info(`  - UUID match: ${actualUuid === expectedUuid}`);
+                    logger.info(`  - UUID not empty: ${expectedUuid !== ''}`);
+                    logger.info(`  - Final verified: ${verified}`);
                 } else {
                     // For other types, compare values directly
-                    console.log(`[verifyPropertyChange] Value comparison:`);
-                    console.log(`  - Expected type: ${typeof expectedValue}`);
-                    console.log(`  - Actual type: ${typeof actualValue}`);
+                    logger.info(`[verifyPropertyChange] Value comparison:`);
+                    logger.info(`  - Expected type: ${typeof expectedValue}`);
+                    logger.info(`  - Actual type: ${typeof actualValue}`);
 
                     if (typeof actualValue === typeof expectedValue) {
                         if (typeof actualValue === 'object' && actualValue !== null && expectedValue !== null) {
                             // Deep comparison for object types
                             verified = JSON.stringify(actualValue) === JSON.stringify(expectedValue);
-                            console.log(`  - Object comparison (JSON): ${verified}`);
+                            logger.info(`  - Object comparison (JSON): ${verified}`);
                         } else {
                             // Direct comparison for basic types
                             verified = actualValue === expectedValue;
-                            console.log(`  - Direct comparison: ${verified}`);
+                            logger.info(`  - Direct comparison: ${verified}`);
                         }
                     } else {
                         // Special handling for type mismatch (e.g., number and string)
                         const stringMatch = String(actualValue) === String(expectedValue);
                         const numberMatch = Number(actualValue) === Number(expectedValue);
                         verified = stringMatch || numberMatch;
-                        console.log(`  - String match: ${stringMatch}`);
-                        console.log(`  - Number match: ${numberMatch}`);
-                        console.log(`  - Type mismatch verified: ${verified}`);
+                        logger.info(`  - String match: ${stringMatch}`);
+                        logger.info(`  - Number match: ${numberMatch}`);
+                        logger.info(`  - Type mismatch verified: ${verified}`);
                     }
                 }
 
-                console.log(`[verifyPropertyChange] Final verification result: ${verified}`);
-                console.log(`[verifyPropertyChange] Final actualValue:`, JSON.stringify(actualValue));
+                logger.info(`[verifyPropertyChange] Final verification result: ${verified}`);
+                logger.info(`[verifyPropertyChange] Final actualValue: ${JSON.stringify(actualValue)}`);
 
                 const result = {
                     verified,
@@ -1953,17 +1820,17 @@ export class ComponentTools implements ToolExecutor {
                     }
                 };
 
-                console.log(`[verifyPropertyChange] Returning result:`, JSON.stringify(result, null, 2));
+                logger.info(`[verifyPropertyChange] Returning result: ${JSON.stringify(result, null, 2)}`);
                 return result;
             } else {
-                console.log(`[verifyPropertyChange] ComponentInfo failed or no data:`, componentInfo);
+                logger.info(`[verifyPropertyChange] ComponentInfo failed or no data: ${JSON.stringify(componentInfo)}`);
             }
         } catch (error) {
-            console.error('[verifyPropertyChange] Verification failed with error:', error);
-            console.error('[verifyPropertyChange] Error stack:', error instanceof Error ? error.stack : 'No stack trace');
+            logger.error(`[verifyPropertyChange] Verification failed with error: ${(error as any)?.message ?? String(error)}`);
+            logger.error(`[verifyPropertyChange] Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
         }
 
-        console.log(`[verifyPropertyChange] Returning fallback result`);
+        logger.info(`[verifyPropertyChange] Returning fallback result`);
         return {
             verified: false,
             actualValue: undefined,
@@ -1975,7 +1842,7 @@ export class ComponentTools implements ToolExecutor {
      * Detect if this is a node property, redirect to corresponding node method if so
      */
     private async checkAndRedirectNodeProperties(args: any): Promise<ToolResponse | null> {
-        const { nodeUuid, componentType, property, propertyType, value } = args;
+        const { nodeUuid, componentType, property, value } = args;
 
         // Detect if this is a basic node property (should use set_node_property)
         const nodeBasicProperties = [
@@ -2064,38 +1931,4 @@ export class ComponentTools implements ToolExecutor {
         return instruction;
     }
 
-    /**
-     * Quick verification of asset setting result
-     */
-    private async quickVerifyAsset(nodeUuid: string, componentType: string, property: string): Promise<any> {
-        try {
-            const rawNodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
-            if (!rawNodeData || !rawNodeData.__comps__) {
-                return null;
-            }
-
-            // Find component
-            const component = rawNodeData.__comps__.find((comp: any) => {
-                const compType = comp.__type__ || comp.cid || comp.type;
-                return compType === componentType;
-            });
-
-            if (!component) {
-                return null;
-            }
-
-            // Extract property value
-            const properties = this.extractComponentProperties(component);
-            const propertyData = properties[property];
-
-            if (propertyData && typeof propertyData === 'object' && 'value' in propertyData) {
-                return propertyData.value;
-            } else {
-                return propertyData;
-            }
-        } catch (error) {
-            console.error(`[quickVerifyAsset] Error:`, error);
-            return null;
-        }
-    }
 }
