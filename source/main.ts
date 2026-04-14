@@ -75,17 +75,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     /**
-     * @en Get tools list
-     * @zh Get tools list
-     */
-    getToolsList() {
-        return mcpServer ? mcpServer.getAvailableTools() : [];
-    },
-
-    getFilteredToolsList() {
-        return mcpServer ? mcpServer.getAvailableTools() : [];
-    },
-    /**
      * @en Get server settings
      * @zh Get server settings
      */
@@ -100,13 +89,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
     async getSettings() {
         return mcpServer ? mcpServer.getSettings() : readSettings();
     },
-
-    async executeToolFromPanel(toolName: string, args: any) {
-        if (!mcpServer) {
-            throw new Error('MCP Server is not initialized');
-        }
-        return mcpServer.executeToolCall(toolName, args);
-    }
 };
 
 /**

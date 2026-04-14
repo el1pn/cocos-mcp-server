@@ -1,14 +1,5 @@
 <div class="mcp-app">
-    <div class="tab-navigation">
-        <button class="tab-button" :class="{ active: activeTab === 'server' }" @click="switchTab('server')">
-            <span>{{ t('server_tab') }}</span>
-        </button>
-        <button class="tab-button" :class="{ active: activeTab === 'tester' }" @click="switchTab('tester')">
-            <span>Tool Tester</span>
-        </button>
-    </div>
-
-    <div class="tab-content" v-show="activeTab === 'server'">
+    <div class="tab-content">
         <section class="server-status">
             <h3>{{ t('server_status') }}</h3>
             <div class="status-info">
@@ -70,60 +61,5 @@
         <footer>
             <ui-button @click="saveSettings" :disabled="!settingsChanged">{{ t('save_settings') }}</ui-button>
         </footer>
-    </div>
-
-    <div class="tab-content" v-show="activeTab === 'tester'">
-        <section class="tool-tester">
-            <h3>Tool Tester</h3>
-
-            <ui-prop>
-                <ui-label slot="label">Tool</ui-label>
-                <ui-select slot="content" :value="testerSelectedTool" @confirm="(e) => { testerSelectTool(e.target.value); }">
-                    <option v-for="tool in testerToolNames" :key="tool" :value="tool">{{ tool }}</option>
-                </ui-select>
-            </ui-prop>
-
-            <div v-if="testerSelectedToolDef" class="tester-description">
-                <p style="color: #aaa; font-size: 11px; margin: 4px 0 8px 0;">{{ testerSelectedToolDef.description }}</p>
-            </div>
-
-            <div v-if="testerParams.length > 0" style="margin: 4px 0 8px 0; font-size: 11px; color: #ccc;">
-                <div v-for="param in testerParams" :key="param.name" style="margin: 2px 0; display: flex; gap: 6px; align-items: baseline;">
-                    <code style="color: #569cd6;">{{ param.name }}</code>
-                    <span style="color: #666;">{{ param.type }}</span>
-                    <span v-if="param.required" style="color: #d19a66; font-size: 10px;">required</span>
-                    <span v-if="param.enum" style="color: #888; font-size: 10px;">[{{ param.enum.join(', ') }}]</span>
-                    <span v-if="param.description" style="color: #666; font-size: 10px;">— {{ param.description }}</span>
-                </div>
-            </div>
-
-            <div style="margin: 4px 0 8px 0;">
-                <label style="font-size: 12px; color: #aaa; display: block; margin-bottom: 4px;">Arguments (JSON)</label>
-                <textarea
-                    :value="testerArgs"
-                    @input="(e) => { testerArgs = e.target.value; }"
-                    placeholder='{"action": "get_current"}'
-                    spellcheck="false"
-                    style="width: 100%; min-height: 100px; background: #1e1e1e; color: #d4d4d4; border: 1px solid #333; border-radius: 4px; padding: 8px; font-family: monospace; font-size: 12px; resize: vertical; box-sizing: border-box; white-space: pre; tab-size: 2;"
-                ></textarea>
-            </div>
-
-            <div class="tester-controls" style="margin: 8px 0; display: flex; gap: 8px;">
-                <ui-button class="primary" @click="testerExecute" :disabled="!testerSelectedTool || testerRunning">
-                    {{ testerRunning ? 'Running...' : 'Execute' }}
-                </ui-button>
-                <ui-button @click="testerClear">Clear</ui-button>
-            </div>
-
-            <div v-if="testerResult !== null" class="tester-result">
-                <h4 style="margin: 8px 0 4px 0; display: flex; align-items: center; gap: 8px;">
-                    Result — <span style="font-weight: normal; color: #aaa;">{{ testerSelectedTool }}</span>
-                    <span v-if="testerDuration" style="font-weight: normal; color: #888; font-size: 11px;">({{ testerDuration }}ms)</span>
-                </h4>
-                <div style="background: #1e1e1e; border: 1px solid #333; border-radius: 4px; padding: 8px; max-height: 300px; overflow: auto;">
-                    <pre style="margin: 0; font-size: 11px; white-space: pre-wrap; word-break: break-all; color: #d4d4d4;">{{ testerResultText }}</pre>
-                </div>
-            </div>
-        </section>
     </div>
 </div>

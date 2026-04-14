@@ -96,8 +96,7 @@ source/
 │   ├── search-tools.ts
 │   ├── editor-tools.ts
 │   ├── animation-tools.ts
-│   ├── material-tools.ts
-│   └── tool-manager.ts     # Tool configuration persistence (enable/disable per slot)
+│   └── material-tools.ts
 └── panels/
     └── default/index.ts    # Vue 3 panel: Server tab, Tools tab, Tester tab
 ```

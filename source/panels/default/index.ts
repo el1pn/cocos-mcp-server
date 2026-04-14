@@ -38,7 +38,6 @@ module.exports = Editor.Panel.define({
             app.component('McpServerApp', defineComponent({
                 setup() {
                     // Reactive data
-                    const activeTab = ref('server');
                     const serverRunning = ref(false);
                     const connectedClients = ref(0);
                     const httpUrl = ref('');
@@ -71,14 +70,6 @@ module.exports = Editor.Panel.define({
                     ));
 
                     const settingsChanged = ref(false);
-
-                    // Methods
-                    const switchTab = (tabName: string) => {
-                        activeTab.value = tabName;
-                        if (tabName === 'tester') {
-                            loadTesterTools();
-                        }
-                    };
 
                     const toggleServer = async () => {
                         try {
@@ -126,94 +117,6 @@ module.exports = Editor.Panel.define({
                         }
                     };
 
-                    // --- Tool Tester state ---
-                    const testerSelectedTool = ref('');
-                    const testerArgs = ref('{}');
-                    const testerResult = ref<any>(null);
-                    const testerRunning = ref(false);
-                    const testerDuration = ref<number | null>(null);
-                    const testerToolDefs = ref<any[]>([]);
-
-                    const testerToolNames = computed(() => testerToolDefs.value.map(t => t.name).sort());
-                    const testerSelectedToolDef = computed(() =>
-                        testerToolDefs.value.find(t => t.name === testerSelectedTool.value) || null
-                    );
-                    const testerResultText = computed(() => {
-                        if (testerResult.value === null) return '';
-                        return JSON.stringify(testerResult.value, null, 2);
-                    });
-
-                    const testerParams = computed(() => {
-                        const def = testerSelectedToolDef.value;
-                        if (!def?.inputSchema?.properties) return [];
-                        const required = new Set(def.inputSchema.required || []);
-                        return Object.entries(def.inputSchema.properties).map(([name, prop]: [string, any]) => ({
-                            name,
-                            type: prop.type || 'any',
-                            required: required.has(name),
-                            description: prop.description || '',
-                            enum: prop.enum || null,
-                        }));
-                    });
-
-                    const testerSelectTool = (toolName: string) => {
-                        testerSelectedTool.value = toolName;
-                        const def = testerToolDefs.value.find(t => t.name === toolName);
-                        if (def?.inputSchema?.properties) {
-                            const sample: Record<string, any> = {};
-                            const props = def.inputSchema.properties;
-                            const required = new Set(def.inputSchema.required || []);
-                            for (const [key, prop] of Object.entries(props) as [string, any][]) {
-                                if (prop.enum?.length > 0) {
-                                    sample[key] = prop.enum[0];
-                                } else if (prop.type === 'string') {
-                                    sample[key] = '';
-                                } else if (prop.type === 'number') {
-                                    sample[key] = 0;
-                                } else if (prop.type === 'boolean') {
-                                    sample[key] = false;
-                                } else if (prop.type === 'object') {
-                                    sample[key] = {};
-                                } else if (prop.type === 'array') {
-                                    sample[key] = [];
-                                }
-                            }
-                            testerArgs.value = JSON.stringify(sample, null, 2);
-                        } else {
-                            testerArgs.value = '{}';
-                        }
-                    };
-
-                    const testerExecute = async () => {
-                        if (!testerSelectedTool.value) return;
-                        testerRunning.value = true;
-                        testerResult.value = null;
-                        testerDuration.value = null;
-                        const start = Date.now();
-                        try {
-                            let args = {};
-                            try { args = JSON.parse(testerArgs.value); } catch { /* ignore */ }
-                            const result = await Editor.Message.request('cocos-mcp-server', 'executeToolFromPanel', testerSelectedTool.value, args);
-                            testerResult.value = result;
-                        } catch (error: any) {
-                            testerResult.value = { error: error.message || String(error) };
-                        }
-                        testerDuration.value = Date.now() - start;
-                        testerRunning.value = false;
-                    };
-
-                    const testerClear = () => {
-                        testerResult.value = null;
-                        testerDuration.value = null;
-                    };
-
-                    const loadTesterTools = async () => {
-                        try {
-                            const tools = await Editor.Message.request('cocos-mcp-server', 'getToolsList');
-                            testerToolDefs.value = tools || [];
-                        } catch { /* ignore */ }
-                    };
-
                     onMounted(async () => {
                         try {
                             const result = await Editor.Message.request('cocos-mcp-server', 'get-server-status');
@@ -255,7 +158,6 @@ module.exports = Editor.Panel.define({
                     });
 
                     return {
-                        activeTab,
                         serverRunning,
                         serverStatusText,
                         connectedClients,
@@ -267,24 +169,9 @@ module.exports = Editor.Panel.define({
                         statusClass,
 
                         t,
-                        switchTab,
                         toggleServer,
                         saveSettings,
                         copyUrl,
-
-                        // Tester
-                        testerSelectedTool,
-                        testerArgs,
-                        testerResult,
-                        testerRunning,
-                        testerDuration,
-                        testerToolNames,
-                        testerSelectedToolDef,
-                        testerResultText,
-                        testerParams,
-                        testerSelectTool,
-                        testerExecute,
-                        testerClear,
                     };
                 },
                 template: readFileSync(join(__dirname, '../../../static/template/vue/mcp-server-app.html'), 'utf-8'),

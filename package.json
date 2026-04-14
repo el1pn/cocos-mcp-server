@@ -52,11 +52,6 @@
                     "openPanel"
                 ]
             },
-            "open-tool-manager": {
-                "methods": [
-                    "openToolManager"
-                ]
-            },
             "start-server": {
                 "methods": [
                     "startServer"
@@ -77,69 +72,9 @@
                     "updateSettings"
                 ]
             },
-            "getToolsList": {
-                "methods": [
-                    "getToolsList"
-                ]
-            },
             "get-server-settings": {
                 "methods": [
                     "getServerSettings"
-                ]
-            },
-            "getToolManagerState": {
-                "methods": [
-                    "getToolManagerState"
-                ]
-            },
-            "createToolConfiguration": {
-                "methods": [
-                    "createToolConfiguration"
-                ]
-            },
-            "updateToolConfiguration": {
-                "methods": [
-                    "updateToolConfiguration"
-                ]
-            },
-            "deleteToolConfiguration": {
-                "methods": [
-                    "deleteToolConfiguration"
-                ]
-            },
-            "setCurrentToolConfiguration": {
-                "methods": [
-                    "setCurrentToolConfiguration"
-                ]
-            },
-            "updateToolStatus": {
-                "methods": [
-                    "updateToolStatus"
-                ]
-            },
-            "updateToolStatusBatch": {
-                "methods": [
-                    "updateToolStatusBatch"
-                ]
-            },
-            "exportToolConfiguration": {
-                "methods": [
-                    "exportToolConfiguration"
-                ]
-            },
-            "importToolConfiguration": {
-                "methods": [
-                    "importToolConfiguration"
-                ]
-            },
-            "getEnabledTools": {
-                "methods": [
-                    "getEnabledTools"
-                ]
-            },
-            "executeToolFromPanel": {
-                "methods": [
-                    "executeToolFromPanel"
                 ]
             }
         },
