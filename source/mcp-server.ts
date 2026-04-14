@@ -413,10 +413,15 @@ export class MCPServer {
         res.setHeader('X-Accel-Buffering', 'no');
     }
 
+    private static readonly PROTOCOL_VERSION_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
     private negotiateProtocolVersion(messageProtocol: any, headerProtocol?: string): string | null {
         const requested = typeof messageProtocol === 'string'
             ? messageProtocol
             : (headerProtocol || MCPServer.DEFAULT_PROTOCOL_VERSION);
+        if (typeof requested !== 'string' || !MCPServer.PROTOCOL_VERSION_PATTERN.test(requested)) {
+            return null;
+        }
         if (!MCPServer.SUPPORTED_PROTOCOL_VERSIONS.has(requested)) {
             return null;
         }
@@ -483,101 +488,102 @@ export class MCPServer {
             return;
         }
 
-        this.readRequestBody(req)
-            .then(async (body) => {
-                try {
-                    let message: any;
-                    try {
-                        message = JSON.parse(body);
-                    } catch (parseError: any) {
-                        if (!this.shouldTryFixJson(body)) {
-                            throw new Error(`JSON parsing failed: ${parseError.message}. Original body: ${body.substring(0, 500)}...`);
-                        }
-                        const fixedBody = this.fixCommonJsonIssues(body);
-                        message = JSON.parse(fixedBody);
-                    }
+        let body: string;
+        try {
+            body = await this.readRequestBody(req);
+        } catch (err: any) {
+            const bodyErrorResponse = {
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32600,
+                    message: err?.message || 'Request body too large'
+                }
+            };
+            this.sendSSEEvent(stream, 'message', JSON.stringify(bodyErrorResponse));
+            res.writeHead(202);
+            res.end();
+            return;
+        }
 
-                    const client = this.clients.get(sessionId);
-                    if (client) {
-                        client.lastActivity = new Date();
-                        this.clients.set(sessionId, client);
-                    }
+        try {
+            let message: any;
+            try {
+                message = JSON.parse(body);
+            } catch (parseError: any) {
+                if (!this.shouldTryFixJson(body)) {
+                    throw new Error(`JSON parsing failed: ${parseError.message}. Original body: ${body.substring(0, 500)}...`);
+                }
+                const fixedBody = this.fixCommonJsonIssues(body);
+                message = JSON.parse(fixedBody);
+            }
 
-                    const isRequest = this.isJsonRpcRequestMessage(message);
-                    const isNotification = this.isJsonRpcNotification(message);
-                    const isInitialize = isRequest && message.method === 'initialize';
-                    if (isInitialize) {
-                        const protocolVersion = this.negotiateProtocolVersion(message?.params?.protocolVersion);
-                        if (!protocolVersion) {
-                            const unsupportedResponse = {
-                                jsonrpc: '2.0',
-                                id: message?.id ?? null,
-                                error: {
-                                    code: -32600,
-                                    message: `Unsupported protocol version: ${message?.params?.protocolVersion}`
-                                }
-                            };
-                            this.sendSSEEvent(stream, 'message', JSON.stringify(unsupportedResponse));
-                            res.writeHead(202);
-                            res.end();
-                            return;
-                        }
+            const client = this.clients.get(sessionId);
+            if (client) {
+                client.lastActivity = new Date();
+                this.clients.set(sessionId, client);
+            }
 
-                        const response = await this.handleMessage(message, { protocolVersion });
-                        const client = this.clients.get(sessionId);
-                        if (client && !response.error) {
-                            client.protocolVersion = protocolVersion;
-                            client.initialized = true;
-                            this.clients.set(sessionId, client);
-                        }
-                        this.sendSSEEvent(stream, 'message', JSON.stringify(response));
-                        res.writeHead(202);
-                        res.end();
-                        return;
-                    }
-
-                    if (isNotification) {
-                        logger.mcp(`Received SSE notification: ${message.method}`);
-                        res.writeHead(202);
-                        res.end();
-                        return;
-                    }
-
-                    const response = await this.handleMessage(message);
-                    this.sendSSEEvent(stream, 'message', JSON.stringify(response));
-
-                    res.writeHead(202);
-                    res.end();
-                } catch (error: any) {
-                    logger.error(`Error handling SSE request: ${error}`);
-                    const parseErrorResponse = {
+            const isRequest = this.isJsonRpcRequestMessage(message);
+            const isNotification = this.isJsonRpcNotification(message);
+            const isInitialize = isRequest && message.method === 'initialize';
+            if (isInitialize) {
+                const protocolVersion = this.negotiateProtocolVersion(message?.params?.protocolVersion);
+                if (!protocolVersion) {
+                    const unsupportedResponse = {
                         jsonrpc: '2.0',
-                        id: null,
+                        id: message?.id ?? null,
                         error: {
-                            code: -32700,
-                            message: `Parse error: ${error.message}`
+                            code: -32600,
+                            message: `Unsupported protocol version: ${message?.params?.protocolVersion}`
                         }
                     };
-                    this.sendSSEEvent(stream, 'message', JSON.stringify(parseErrorResponse));
-
+                    this.sendSSEEvent(stream, 'message', JSON.stringify(unsupportedResponse));
                     res.writeHead(202);
                     res.end();
+                    return;
                 }
-            })
-            .catch((error: any) => {
-                const bodyErrorResponse = {
-                    jsonrpc: '2.0',
-                    id: null,
-                    error: {
-                        code: -32600,
-                        message: error.message || 'Request body too large'
-                    }
-                };
-                this.sendSSEEvent(stream, 'message', JSON.stringify(bodyErrorResponse));
 
+                const response = await this.handleMessage(message, { protocolVersion });
+                const initClient = this.clients.get(sessionId);
+                if (initClient && !response.error) {
+                    initClient.protocolVersion = protocolVersion;
+                    initClient.initialized = true;
+                    this.clients.set(sessionId, initClient);
+                }
+                this.sendSSEEvent(stream, 'message', JSON.stringify(response));
                 res.writeHead(202);
                 res.end();
-            });
+                return;
+            }
+
+            if (isNotification) {
+                logger.mcp(`Received SSE notification: ${message.method}`);
+                res.writeHead(202);
+                res.end();
+                return;
+            }
+
+            const response = await this.handleMessage(message);
+            this.sendSSEEvent(stream, 'message', JSON.stringify(response));
+
+            res.writeHead(202);
+            res.end();
+        } catch (error: any) {
+            logger.error(`Error handling SSE request: ${error}`);
+            const parseErrorResponse = {
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32700,
+                    message: `Parse error: ${error.message}`
+                }
+            };
+            this.sendSSEEvent(stream, 'message', JSON.stringify(parseErrorResponse));
+
+            res.writeHead(202);
+            res.end();
+        }
     }
 
     private sendSSEEvent(res: http.ServerResponse, event: string, data: string): void {
@@ -607,9 +613,21 @@ export class MCPServer {
             return;
         }
 
-        this.readRequestBody(req)
-            .then(async (body) => {
-            try {
+        let body: string;
+        try {
+            body = await this.readRequestBody(req);
+        } catch (err: any) {
+            res.writeHead(413);
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: { code: -32600, message: err?.message || 'Request body too large' }
+            }));
+            return;
+        }
+
+        try {
+            {
                 // Enhanced JSON parsing with better error handling
                 let message: any;
                 try {
@@ -788,30 +806,19 @@ export class MCPServer {
                     res.writeHead(200);
                 }
                 res.end(JSON.stringify(response));
-            } catch (error: any) {
-                logger.error(`Error handling MCP request: ${error}`);
-                res.writeHead(400);
-                res.end(JSON.stringify({
-                    jsonrpc: '2.0',
-                    id: null,
-                    error: {
-                        code: -32700,
-                        message: `Parse error: ${error.message}`
-                    }
-                }));
             }
-        })
-        .catch((error: any) => {
-            res.writeHead(413);
+        } catch (error: any) {
+            logger.error(`Error handling MCP request: ${error}`);
+            res.writeHead(400);
             res.end(JSON.stringify({
                 jsonrpc: '2.0',
                 id: null,
                 error: {
-                    code: -32600,
-                    message: error.message || 'Request body too large'
+                    code: -32700,
+                    message: `Parse error: ${error.message}`
                 }
             }));
-        });
+        }
     }
 
     private async handleMessage(message: any, context?: { protocolVersion?: string }): Promise<any> {
@@ -861,6 +868,7 @@ export class MCPServer {
                             'All tools use an "action" parameter to specify operations. ' +
                             'After creating or restructuring UI nodes, apply responsive defaults (anchors, widget constraints, and layout), and prefer ui_apply_responsive_defaults immediately for consistency. ' +
                             'Prefer reusable prefab edits at the prefab asset source level; use scene-local overrides only when necessary. ' +
+                            'For any composite UI (popups, dialogs, panels, list items, cards, HUD widgets, etc.), do NOT assemble the tree from scratch via chained node_lifecycle.create calls. First locate an existing prefab template in this project (prefab_query.get_list, or asset_query.find_by_name with assetType="prefab"), then use prefab_lifecycle.instantiate and override properties via set_component_property. Build-from-scratch is only acceptable for trivial wrappers (≤3 children, no layout components). If no template fits, ask the user which existing prefab to base it on. ' +
                             'Keep node names semantic, short, and consistent with component roles. ' +
                             'When hierarchy or node names change, verify and update script references and lookup paths. ' +
                             'Validate node/component/asset references after edits to ensure there are no missing links. ' +
@@ -1003,25 +1011,79 @@ export class MCPServer {
         return info;
     }
 
+    /**
+     * Repair common JSON5-ish mistakes that LLM clients sometimes emit.
+     *
+     * This walks the input character by character so we only touch tokens
+     * where the fix is unambiguously correct. The previous regex-based
+     * version corrupted valid input (e.g. it would replace single quotes
+     * inside string literals and double-escape backslashes).
+     *
+     * Repairs applied:
+     *  - Trailing commas before `}` or `]`
+     *  - Literal newline / CR / tab inside string literals → `\n`/`\r`/`\t`
+     *  - JS-style single-quoted strings → double-quoted strings
+     *
+     * Anything else (unbalanced quotes, unescaped backslashes, comments)
+     * is left alone so the caller's JSON.parse error surfaces honestly.
+     */
     private fixCommonJsonIssues(jsonStr: string): string {
-        let fixed = jsonStr;
-        
-        // Fix common escape character issues
-        fixed = fixed
-            // Fix unescaped quotes in strings
-            .replace(/([^\\])"([^"]*[^\\])"([^,}\]:])/g, '$1\\"$2\\"$3')
-            // Fix unescaped backslashes
-            .replace(/([^\\])\\([^"\\\/bfnrt])/g, '$1\\\\$2')
-            // Fix trailing commas
-            .replace(/,(\s*[}\]])/g, '$1')
-            // Fix single quotes (should be double quotes)
-            .replace(/'/g, '"')
-            // Fix common control characters
-            .replace(/\n/g, '\\n')
-            .replace(/\r/g, '\\r')
-            .replace(/\t/g, '\\t');
-        
-        return fixed;
+        const out: string[] = [];
+        let i = 0;
+        const len = jsonStr.length;
+
+        while (i < len) {
+            const ch = jsonStr[i];
+
+            if (ch === '"' || ch === "'") {
+                const quote = ch;
+                out.push('"');
+                i++;
+                while (i < len) {
+                    const c = jsonStr[i];
+                    if (c === '\\') {
+                        if (i + 1 < len) {
+                            out.push(c, jsonStr[i + 1]);
+                            i += 2;
+                        } else {
+                            out.push(c);
+                            i++;
+                        }
+                        continue;
+                    }
+                    if (c === quote) {
+                        out.push('"');
+                        i++;
+                        break;
+                    }
+                    if (c === '\n') { out.push('\\n'); i++; continue; }
+                    if (c === '\r') { out.push('\\r'); i++; continue; }
+                    if (c === '\t') { out.push('\\t'); i++; continue; }
+                    if (quote === "'" && c === '"') {
+                        out.push('\\"');
+                        i++;
+                        continue;
+                    }
+                    out.push(c);
+                    i++;
+                }
+                continue;
+            }
+
+            if (ch === ',') {
+                let j = i + 1;
+                while (j < len && /\s/.test(jsonStr[j])) j++;
+                if (j < len && (jsonStr[j] === '}' || jsonStr[j] === ']')) {
+                    i = j;
+                    continue;
+                }
+            }
+
+            out.push(ch);
+            i++;
+        }
+
+        return out.join('');
     }
 
     public stop(): void {
@@ -1062,87 +1124,85 @@ export class MCPServer {
     }
 
     private async handleSimpleAPIRequest(req: http.IncomingMessage, res: http.ServerResponse, pathname: string): Promise<void> {
-        this.readRequestBody(req)
-            .then(async (body) => {
-            try {
-                // Extract tool name from path like /api/tool/node_lifecycle or legacy /api/node/lifecycle
-                const pathParts = pathname.split('/').filter(p => p);
-                if (pathParts.length < 3) {
-                    res.writeHead(400);
-                    res.end(JSON.stringify({ error: 'Invalid API path. Use /api/tool/{tool_name}' }));
-                    return;
-                }
-
-                // Support both /api/tool/{name} and legacy /api/{category}/{name}
-                let fullToolName: string;
-                if (pathParts[1] === 'tool') {
-                    fullToolName = pathParts[2];
-                } else {
-                    fullToolName = `${pathParts[1]}_${pathParts[2]}`;
-                }
-                
-                // Parse parameters with enhanced error handling
-                let params;
-                try {
-                    params = body ? JSON.parse(body) : {};
-                } catch (parseError: any) {
-                    if (!this.shouldTryFixJson(body)) {
-                        res.writeHead(400);
-                        res.end(JSON.stringify({
-                            error: 'Invalid JSON in request body',
-                            details: parseError.message,
-                            receivedBody: body.substring(0, 200)
-                        }));
-                        return;
-                    }
-
-                    // Try to fix JSON issues
-                    const fixedBody = this.fixCommonJsonIssues(body);
-                    try {
-                        params = JSON.parse(fixedBody);
-                    } catch (secondError: any) {
-                        res.writeHead(400);
-                        res.end(JSON.stringify({
-                            error: 'Invalid JSON in request body',
-                            details: parseError.message,
-                            receivedBody: body.substring(0, 200)
-                        }));
-                        return;
-                    }
-                }
-                
-                // Execute tool
-                const result = await this.enqueueToolExecution(fullToolName, params);
-                
-                res.writeHead(200);
-                res.end(JSON.stringify({
-                    success: true,
-                    tool: fullToolName,
-                    result: result
-                }));
-                
-            } catch (error: any) {
-                logger.error(`Simple API error: ${error}`);
-                const isQueueFull = error.message === 'Tool queue is full, please retry later';
-                if (isQueueFull) {
-                    res.setHeader('Retry-After', '5');
-                }
-                res.writeHead(isQueueFull ? 429 : 500);
-                res.end(JSON.stringify({
-                    success: false,
-                    error: error.message,
-                    tool: pathname
-                }));
-            }
-        })
-        .catch((error: any) => {
+        let body: string;
+        try {
+            body = await this.readRequestBody(req);
+        } catch (err: any) {
             res.writeHead(413);
             res.end(JSON.stringify({
                 success: false,
-                error: error.message || 'Request body too large',
+                error: err?.message || 'Request body too large',
                 tool: pathname
             }));
-        });
+            return;
+        }
+
+        try {
+            // Extract tool name from path like /api/tool/node_lifecycle or legacy /api/node/lifecycle
+            const pathParts = pathname.split('/').filter(p => p);
+            if (pathParts.length < 3) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Invalid API path. Use /api/tool/{tool_name}' }));
+                return;
+            }
+
+            // Support both /api/tool/{name} and legacy /api/{category}/{name}
+            let fullToolName: string;
+            if (pathParts[1] === 'tool') {
+                fullToolName = pathParts[2];
+            } else {
+                fullToolName = `${pathParts[1]}_${pathParts[2]}`;
+            }
+
+            let params;
+            try {
+                params = body ? JSON.parse(body) : {};
+            } catch (parseError: any) {
+                if (!this.shouldTryFixJson(body)) {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        error: 'Invalid JSON in request body',
+                        details: parseError.message,
+                        receivedBody: body.substring(0, 200)
+                    }));
+                    return;
+                }
+
+                const fixedBody = this.fixCommonJsonIssues(body);
+                try {
+                    params = JSON.parse(fixedBody);
+                } catch {
+                    res.writeHead(400);
+                    res.end(JSON.stringify({
+                        error: 'Invalid JSON in request body',
+                        details: parseError.message,
+                        receivedBody: body.substring(0, 200)
+                    }));
+                    return;
+                }
+            }
+
+            const result = await this.enqueueToolExecution(fullToolName, params);
+
+            res.writeHead(200);
+            res.end(JSON.stringify({
+                success: true,
+                tool: fullToolName,
+                result
+            }));
+        } catch (error: any) {
+            logger.error(`Simple API error: ${error}`);
+            const isQueueFull = error.message === 'Tool queue is full, please retry later';
+            if (isQueueFull) {
+                res.setHeader('Retry-After', '5');
+            }
+            res.writeHead(isQueueFull ? 429 : 500);
+            res.end(JSON.stringify({
+                success: false,
+                error: error.message,
+                tool: pathname
+            }));
+        }
     }
 
     private async readRequestBody(req: http.IncomingMessage): Promise<string> {
