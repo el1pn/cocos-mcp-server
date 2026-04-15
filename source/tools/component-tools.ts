@@ -278,7 +278,7 @@ export class ComponentTools implements ToolExecutor {
 
             if (preset === 'vertical_list' || preset === 'horizontal_list') {
                 await this.ensureLayout(nodeUuid);
-                const layoutType = preset === 'vertical_list' ? 1 : 0;
+                const layoutType = preset === 'vertical_list' ? 2 : 1;
                 const layoutProps = [
                     { property: 'type', propertyType: 'integer', value: layoutType },
                     { property: 'resizeMode', propertyType: 'integer', value: 2 },
