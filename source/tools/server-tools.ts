@@ -1,4 +1,27 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+
+const MODULE_LOADED_AT = Date.now();
+
+function readServerVersion(): string {
+    try {
+        const pkgPath = path.resolve(__dirname, '../../package.json');
+        const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+        return String(pkg.version ?? 'unknown');
+    } catch {
+        return 'unknown';
+    }
+}
+
+function readDistBuiltAt(): number | null {
+    try {
+        const distEntry = path.resolve(__dirname, '../mcp-server.js');
+        return fs.statSync(distEntry).mtimeMs;
+    } catch {
+        return null;
+    }
+}
 
 export class ServerTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -132,6 +155,12 @@ export class ServerTools implements ToolExecutor {
             status.editorVersion = (Editor as any).versions?.cocos || 'Unknown';
             status.platform = process.platform;
             status.nodeVersion = process.version;
+
+            status.serverVersion = readServerVersion();
+            status.moduleLoadedAt = new Date(MODULE_LOADED_AT).toISOString();
+            const builtAt = readDistBuiltAt();
+            status.distBuiltAt = builtAt ? new Date(builtAt).toISOString() : null;
+            status.reloadRequired = builtAt !== null && builtAt > MODULE_LOADED_AT;
 
             return { success: true, data: status };
         } catch (err: any) {
