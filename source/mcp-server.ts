@@ -19,6 +19,7 @@ import { BatchTools } from './tools/batch-tools';
 import { SearchTools } from './tools/search-tools';
 import { EditorTools } from './tools/editor-tools';
 import { MaterialTools } from './tools/material-tools';
+import { UIBuilderTools } from './tools/ui-builder-tools';
 
 export class MCPServer {
     private static readonly MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
@@ -78,6 +79,7 @@ export class MCPServer {
             this.tools.search = new SearchTools();
             this.tools.editor = new EditorTools();
             this.tools.material = new MaterialTools();
+            this.tools.uiBuilder = new UIBuilderTools();
             logger.success('Tools initialized successfully');
         } catch (error) {
             logger.error(`Error initializing tools: ${error}`);
