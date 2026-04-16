@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, PrefabInfo } from '../types';
 import { logger } from '../logger';
+import { validateAssetUrl } from '../utils/asset-safety';
 
 export class PrefabTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -1423,28 +1424,58 @@ export class PrefabTools implements ToolExecutor {
 
     private async duplicatePrefab(args: any): Promise<ToolResponse> {
         try {
-            const { sourcePrefabPath } = args;
+            const { sourcePrefabPath, targetPrefabPath, newPrefabName } = args;
 
-            // Read source prefab
-            const sourceInfo = await this.getPrefabInfo(sourcePrefabPath);
-            if (!sourceInfo.success) {
+            if (!sourcePrefabPath) {
+                return { success: false, error: 'sourcePrefabPath is required' };
+            }
+
+            // Build target path: explicit target, or derive from source + newPrefabName
+            let target = targetPrefabPath;
+            if (!target) {
+                if (!newPrefabName) {
+                    return { success: false, error: 'Either targetPrefabPath or newPrefabName is required' };
+                }
+                // Place the copy in the same directory as the source
+                const lastSlash = sourcePrefabPath.lastIndexOf('/');
+                const dir = lastSlash >= 0 ? sourcePrefabPath.substring(0, lastSlash) : 'db://assets';
+                const name = newPrefabName.endsWith('.prefab') ? newPrefabName : `${newPrefabName}.prefab`;
+                target = `${dir}/${name}`;
+            }
+
+            let validatedSource: string;
+            let validatedTarget: string;
+            try {
+                validatedSource = validateAssetUrl(sourcePrefabPath);
+                validatedTarget = validateAssetUrl(target);
+            } catch (err: any) {
+                return { success: false, error: err.message };
+            }
+
+            const result: any = await Editor.Message.request('asset-db', 'copy-asset', validatedSource, validatedTarget, {
+                overwrite: false,
+                rename: true
+            });
+
+            if (!result || !result.uuid) {
                 return {
                     success: false,
-                    error: `Unable to read source prefab: ${sourceInfo.error}`
+                    error: `Copy failed — editor returned no uuid (source=${validatedSource} target=${validatedTarget})`
                 };
             }
 
-            // Prefab copy function temporarily disabled due to complex serialization format
             return {
-                success: false,
-                error: 'Prefab copy function is temporarily unavailable',
-                instruction: 'Please manually copy the prefab in Cocos Creator editor:\n1. Select the prefab in the asset manager\n2. Right-click and select Copy\n3. Paste at the target location'
+                success: true,
+                data: {
+                    uuid: result.uuid,
+                    url: result.url,
+                    message: `Prefab duplicated successfully: ${validatedSource} → ${result.url || validatedTarget}`
+                }
             };
-
-        } catch (error) {
+        } catch (error: any) {
             return {
                 success: false,
-                error: `Error occurred while copying prefab: ${error}`
+                error: `Error occurred while copying prefab: ${error?.message ?? String(error)}`
             };
         }
     }
