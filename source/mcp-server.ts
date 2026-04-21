@@ -1,6 +1,6 @@
 import * as http from 'http';
 import * as url from 'url';
-import { randomUUID } from 'crypto';
+import { v4 as uuidv4 } from 'uuid';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
 import { logger } from './logger';
 import { SceneTools } from './tools/scene-tools';
@@ -366,7 +366,7 @@ export class MCPServer {
         res.setHeader(MCPServer.SESSION_HEADER, session.id);
         res.writeHead(200);
 
-        const streamId = randomUUID();
+        const streamId = uuidv4();
         const sessionStreamSet = this.sessionStreams.get(session.id) || new Map<string, http.ServerResponse>();
         sessionStreamSet.set(streamId, res);
         this.sessionStreams.set(session.id, sessionStreamSet);
@@ -449,7 +449,7 @@ export class MCPServer {
     }
 
     private handleSSEConnection(req: http.IncomingMessage, res: http.ServerResponse): void {
-        const clientId = randomUUID();
+        const clientId = uuidv4();
         this.setupSSEHeaders(res);
         res.writeHead(200);
 
@@ -704,7 +704,7 @@ export class MCPServer {
                         return;
                     }
 
-                    const sessionId = randomUUID();
+                    const sessionId = uuidv4();
                     const response = await this.handleMessage(message, { protocolVersion });
                     const isQueueFull = response.error?.code === -32029;
                     if (!response.error) {

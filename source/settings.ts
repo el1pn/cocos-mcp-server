@@ -10,20 +10,50 @@ const DEFAULT_SETTINGS: MCPServerSettings = {
     maxConnections: 10
 };
 
-function getSettingsPath(): string {
-    return path.join(Editor.Project.path, 'settings', 'mcp-server.json');
+/** Machine-local data; Cocos project templates typically gitignore `local/`. */
+export function getMcpServerDataDir(projectPath: string): string {
+    return path.join(projectPath, 'local', 'cocos-mcp-server');
 }
 
-function ensureSettingsDir(): void {
-    const settingsDir = path.dirname(getSettingsPath());
-    if (!fs.existsSync(settingsDir)) {
-        fs.mkdirSync(settingsDir, { recursive: true });
+function getLegacySettingsPath(projectPath: string): string {
+    return path.join(projectPath, 'settings', 'mcp-server.json');
+}
+
+function getSettingsPath(): string {
+    return path.join(getMcpServerDataDir(Editor.Project.path), 'mcp-server.json');
+}
+
+function ensureDataDir(): void {
+    const dir = getMcpServerDataDir(Editor.Project.path);
+    if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+    }
+}
+
+/** One-time copy from old `settings/mcp-server.json` (often tracked by git). */
+function migrateLegacySettingsIfNeeded(): void {
+    const projectPath = Editor.Project.path;
+    const nextPath = path.join(getMcpServerDataDir(projectPath), 'mcp-server.json');
+    if (fs.existsSync(nextPath)) {
+        return;
+    }
+    const legacyPath = getLegacySettingsPath(projectPath);
+    if (!fs.existsSync(legacyPath)) {
+        return;
+    }
+    try {
+        ensureDataDir();
+        fs.copyFileSync(legacyPath, nextPath);
+        fs.unlinkSync(legacyPath);
+    } catch (e) {
+        console.error('Failed to migrate legacy MCP settings:', e);
     }
 }
 
 export function readSettings(): MCPServerSettings {
     try {
-        ensureSettingsDir();
+        migrateLegacySettingsIfNeeded();
+        ensureDataDir();
         const settingsFile = getSettingsPath();
         if (fs.existsSync(settingsFile)) {
             const content = fs.readFileSync(settingsFile, 'utf8');
@@ -37,7 +67,7 @@ export function readSettings(): MCPServerSettings {
 
 export function saveSettings(settings: MCPServerSettings): void {
     try {
-        ensureSettingsDir();
+        ensureDataDir();
         const settingsFile = getSettingsPath();
         fs.writeFileSync(settingsFile, JSON.stringify(settings, null, 2));
     } catch (e) {

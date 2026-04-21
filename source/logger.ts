@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import { getMcpServerDataDir } from './settings';
 
 export type LogLevel = 'info' | 'success' | 'warn' | 'error' | 'mcp';
 
@@ -21,11 +22,25 @@ export class Logger {
      * Initialize disk logging. Call after Editor.Project.path is available.
      */
     initDiskLog(projectPath: string): void {
-        const settingsDir = path.join(projectPath, 'settings');
-        if (!fs.existsSync(settingsDir)) {
-            fs.mkdirSync(settingsDir, { recursive: true });
+        const dir = getMcpServerDataDir(projectPath);
+        if (!fs.existsSync(dir)) {
+            fs.mkdirSync(dir, { recursive: true });
         }
-        this.logFilePath = path.join(settingsDir, 'mcp-server.log');
+        const nextLog = path.join(dir, 'mcp-server.log');
+        const legacyLog = path.join(projectPath, 'settings', 'mcp-server.log');
+        try {
+            if (!fs.existsSync(nextLog) && fs.existsSync(legacyLog)) {
+                fs.renameSync(legacyLog, nextLog);
+                const legacyRotated = legacyLog + '.1';
+                const nextRotated = nextLog + '.1';
+                if (fs.existsSync(legacyRotated) && !fs.existsSync(nextRotated)) {
+                    fs.renameSync(legacyRotated, nextRotated);
+                }
+            }
+        } catch {
+            // best-effort migration
+        }
+        this.logFilePath = nextLog;
     }
 
     info(content: string): void { this.log('info', content); }
