@@ -84,8 +84,8 @@ export class EditorTools implements ToolExecutor {
         // Map common menu paths to their actual Editor.Message equivalents in 3.8.x
         const menuActionMap: Record<string, () => Promise<any>> = {
             'File/Save Scene': () => Editor.Message.request('scene', 'save-scene'),
-            'File/Build': () => Editor.Message.request('builder', 'open'),
-            'Project/Build': () => Editor.Message.request('builder', 'open'),
+            'File/Build': () => Editor.Message.request('builder', 'open', 'default'),
+            'Project/Build': () => Editor.Message.request('builder', 'open', 'default'),
         };
 
         const normalizedPath = menuPath.trim();
