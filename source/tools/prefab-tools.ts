@@ -13,8 +13,8 @@ export class PrefabTools implements ToolExecutor {
                     properties: {
                         action: {
                             type: 'string',
-                            enum: ['create', 'instantiate', 'update', 'duplicate'],
-                            description: 'Action to perform: "create" - create a prefab from a node, "instantiate" - instantiate a prefab in the scene, "update" - update an existing prefab, "duplicate" - duplicate an existing prefab'
+                            enum: ['create', 'instantiate', 'update', 'duplicate', 'probe_engine_api'],
+                            description: 'Action to perform: "create" - create a prefab from a node, "instantiate" - instantiate a prefab in the scene, "update" - update an existing prefab, "duplicate" - duplicate an existing prefab, "probe_engine_api" - diagnostic: check if engine PrefabManager API is available'
                         },
                         prefabPath: {
                             type: 'string',
@@ -123,6 +123,8 @@ export class PrefabTools implements ToolExecutor {
                         return await this.updatePrefab(args.prefabPath, args.nodeUuid);
                     case 'duplicate':
                         return await this.duplicatePrefab(args);
+                    case 'probe_engine_api':
+                        return await this.probeEngineApi();
                     default:
                         throw new Error(`Unknown action for prefab_lifecycle: ${args.action}`);
                 }
@@ -693,6 +695,53 @@ export class PrefabTools implements ToolExecutor {
         }
     }
 
+    /**
+     * Diagnostic: query scene process for PrefabManager API availability.
+     */
+    private async probeEngineApi(): Promise<ToolResponse> {
+        try {
+            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'probePrefabManagerAPI',
+                args: []
+            });
+            return result && result.success
+                ? { success: true, data: result.data }
+                : { success: false, error: result?.error || 'probe returned no data' };
+        } catch (err: any) {
+            return { success: false, error: err?.message || String(err) };
+        }
+    }
+
+    /**
+     * Create prefab by delegating to the engine's PrefabManager.createPrefabAssetFromNode
+     * via execute-scene-script. This is the primary path — it handles script __type__
+     * compression, @property ref serialization, and source-node relinking natively.
+     */
+    private async createPrefabViaEngine(nodeUuid: string, prefabPath: string): Promise<ToolResponse> {
+        try {
+            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'createPrefabFromNode',
+                args: [nodeUuid, prefabPath]
+            });
+            if (result && result.success) {
+                return {
+                    success: true,
+                    data: {
+                        ...result.data,
+                        path: prefabPath,
+                        convertedToPrefabInstance: true
+                    },
+                    message: 'Prefab created via engine PrefabManager'
+                };
+            }
+            return { success: false, error: result?.error || 'Unknown engine error' };
+        } catch (err: any) {
+            return { success: false, error: err?.message || String(err) };
+        }
+    }
+
     private async createPrefab(args: any): Promise<ToolResponse> {
         try {
             // Support both prefabPath and savePath parameter names
@@ -711,8 +760,17 @@ export class PrefabTools implements ToolExecutor {
             const includeChildren = args.includeChildren !== false; // Default to true
             const includeComponents = args.includeComponents !== false; // Default to true
 
-            // Prefer using the new asset-db method to create prefab
-            logger.info('Creating prefab using new asset-db method...');
+            // Primary path: delegate to engine's PrefabManager.createPrefabAssetFromNode.
+            // This replicates "drag node to Assets" and avoids the legacy hand-synth pipeline's
+            // known issues with script __type__, @property refs, and source-node relinking.
+            const engineResult = await this.createPrefabViaEngine(args.nodeUuid, fullPath);
+            if (engineResult.success) {
+                return engineResult;
+            }
+            logger.warn(`Engine prefab creation failed, falling back to legacy paths: ${engineResult.error}`);
+
+            // Legacy fallback: asset-db method
+            logger.info('Creating prefab using legacy asset-db method...');
             const assetDbResult = await this.createPrefabWithAssetDB(
                 args.nodeUuid,
                 fullPath,

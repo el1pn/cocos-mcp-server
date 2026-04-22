@@ -324,33 +324,75 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     /**
-     * Create prefab from node
+     * Probe the internal PrefabManager API shape. PoC helper — caller uses the result
+     * to decide whether `createPrefabFromNode` can delegate to the engine.
      */
-    createPrefabFromNode(nodeUuid: string, prefabPath: string) {
+    probePrefabManagerAPI() {
+        const cce = (globalThis as any).cce;
+        if (!cce) return { success: true, data: { hasCce: false } };
+
+        const mgr = cce.Prefab;
+        const listProtoMethods = (obj: any): string[] => {
+            const out = new Set<string>();
+            let cur = obj;
+            while (cur && cur !== Object.prototype) {
+                for (const name of Object.getOwnPropertyNames(cur)) {
+                    if (name === 'constructor') continue;
+                    try {
+                        if (typeof (obj as any)[name] === 'function') out.add(name);
+                    } catch {}
+                }
+                cur = Object.getPrototypeOf(cur);
+            }
+            return Array.from(out).sort();
+        };
+
+        const probe: any = { hasCce: true, hasPrefabManager: !!mgr };
+        if (mgr) {
+            probe.prefabManagerMethods = listProtoMethods(mgr);
+            probe.hasCreatePrefabAssetFromNode = typeof mgr.createPrefabAssetFromNode === 'function';
+            probe.hasGeneratePrefabDataFromNode = typeof mgr.generatePrefabDataFromNode === 'function';
+            probe.hasLinkNodeWithPrefabAsset = typeof mgr.linkNodeWithPrefabAsset === 'function';
+            probe.hasApplyPrefab = typeof mgr.applyPrefab === 'function';
+            probe.hasRevertPrefab = typeof mgr.revertPrefab === 'function';
+            const utils = mgr._utils;
+            if (utils) {
+                probe.hasUtils = true;
+                probe.utilsMethods = listProtoMethods(utils);
+            }
+        }
+        return { success: true, data: probe };
+    },
+
+    /**
+     * Create a prefab from a node by delegating to the engine's official
+     * PrefabManager.createPrefabAssetFromNode. This replicates the "drag node to Assets"
+     * flow — handles script __type__ compression, @property ref serialization, and
+     * relinks the source node as a prefab instance.
+     */
+    async createPrefabFromNode(nodeUuid: string, url: string) {
         try {
-            const { director, instantiate } = require('cc');
-            const scene = director.getScene();
-            if (!scene) {
-                return { success: false, error: 'No active scene' };
+            const mgr = (globalThis as any).cce?.Prefab;
+            if (!mgr || typeof mgr.createPrefabAssetFromNode !== 'function') {
+                return {
+                    success: false,
+                    error: 'cce.Prefab.createPrefabAssetFromNode not available in this Cocos Creator version'
+                };
             }
 
-            const node = scene.getChildByUuid(nodeUuid);
-            if (!node) {
-                return { success: false, error: `Node with UUID ${nodeUuid} not found` };
+            const prefabUuid = await mgr.createPrefabAssetFromNode(nodeUuid, url);
+            if (!prefabUuid) {
+                return {
+                    success: false,
+                    error: 'createPrefabAssetFromNode returned null/undefined'
+                };
             }
-
-            // Note: This is a simulated implementation since prefab files cannot be created directly at runtime
-            // Actual prefab creation requires Editor API support
             return {
                 success: true,
-                data: {
-                    prefabPath: prefabPath,
-                    sourceNodeUuid: nodeUuid,
-                    message: `Prefab created from node '${node.name}' at ${prefabPath}`
-                }
+                data: { prefabUuid, url, sourceNodeUuid: nodeUuid }
             };
         } catch (error: any) {
-            return { success: false, error: error.message };
+            return { success: false, error: error?.message || String(error) };
         }
     },
 
