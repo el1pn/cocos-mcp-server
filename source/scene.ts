@@ -329,6 +329,29 @@ export const methods: { [key: string]: (...any: any) => any } = {
      * editor's "drag node to Assets" flow — handles script __type__ compression,
      * @property ref serialization, and source-node relinking.
      */
+    /**
+     * Revert a prefab instance to match its source asset by delegating to
+     * cce.Prefab.revertPrefab. No public scene message exists for this.
+     */
+    async revertPrefabInstance(nodeUuid: string) {
+        try {
+            const mgr = (globalThis as any).cce?.Prefab;
+            if (!mgr || typeof mgr.revertPrefab !== 'function') {
+                return {
+                    success: false,
+                    error: 'cce.Prefab.revertPrefab not available in this Cocos Creator version'
+                };
+            }
+            const ok = await mgr.revertPrefab(nodeUuid);
+            if (ok === false) {
+                return { success: false, error: 'revertPrefab returned false' };
+            }
+            return { success: true, data: { nodeUuid } };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    },
+
     async createPrefabFromNode(nodeUuid: string, url: string) {
         try {
             const mgr = (globalThis as any).cce?.Prefab;

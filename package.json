@@ -94,6 +94,7 @@
                 "getCurrentSceneInfo",
                 "getSceneHierarchy",
                 "createPrefabFromNode",
+                "revertPrefabInstance",
                 "controlAnimation"
             ]
         }

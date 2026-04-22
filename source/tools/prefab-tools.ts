@@ -179,22 +179,19 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async loadPrefab(prefabPath: string): Promise<ToolResponse> {
+        // "Load" here just resolves the prefab asset metadata — no scene-side
+        // load message exists in Cocos 3.8.x. Use asset-db directly.
         return new Promise((resolve) => {
             Editor.Message.request('asset-db', 'query-asset-info', prefabPath).then((assetInfo: any) => {
                 if (!assetInfo) {
                     throw new Error('Prefab not found');
                 }
-
-                return Editor.Message.request('scene', 'load-asset', {
-                    uuid: assetInfo.uuid
-                });
-            }).then((prefabData: any) => {
                 resolve({
                     success: true,
                     data: {
-                        uuid: prefabData.uuid,
-                        name: prefabData.name,
-                        message: 'Prefab loaded successfully'
+                        uuid: assetInfo.uuid,
+                        name: assetInfo.name,
+                        message: 'Prefab asset resolved'
                     }
                 });
             }).catch((err: Error) => {
@@ -387,18 +384,21 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async revertPrefab(nodeUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'revert-prefab', {
-                node: nodeUuid
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Prefab instance reverted successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
+        // No public "revert-prefab" message exists; delegate to the engine's
+        // PrefabManager via scene-script (same channel used by createPrefabViaEngine).
+        try {
+            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'revertPrefabInstance',
+                args: [nodeUuid]
             });
-        });
+            if (result && result.success) {
+                return { success: true, message: 'Prefab instance reverted successfully' };
+            }
+            return { success: false, error: result?.error || 'Unknown engine error' };
+        } catch (err: any) {
+            return { success: false, error: err?.message || String(err) };
+        }
     }
 
     private async getPrefabInfo(prefabPath: string): Promise<ToolResponse> {
@@ -427,42 +427,25 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async validatePrefab(prefabPath: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            try {
-                Editor.Message.request('asset-db', 'query-asset-info', prefabPath).then((assetInfo: any) => {
-                    if (!assetInfo) {
-                        resolve({ success: false, error: 'Prefab file does not exist' });
-                        return;
-                    }
-
-                    Editor.Message.request('asset-db', 'read-asset', prefabPath).then((content: string) => {
-                        try {
-                            const prefabData = JSON.parse(content);
-                            const validationResult = this.validatePrefabFormat(prefabData);
-
-                            resolve({
-                                success: true,
-                                data: {
-                                    isValid: validationResult.isValid,
-                                    issues: validationResult.issues,
-                                    nodeCount: validationResult.nodeCount,
-                                    componentCount: validationResult.componentCount,
-                                    message: validationResult.isValid ? 'Prefab format is valid' : 'Prefab format has issues'
-                                }
-                            });
-                        } catch {
-                            resolve({ success: false, error: 'Prefab file format error, unable to parse JSON' });
-                        }
-                    }).catch((error: any) => {
-                        resolve({ success: false, error: `Failed to read prefab file: ${error.message}` });
-                    });
-                }).catch((error: any) => {
-                    resolve({ success: false, error: `Failed to query prefab info: ${error.message}` });
-                });
-            } catch (error) {
-                resolve({ success: false, error: `Error occurred while validating prefab: ${error}` });
+        try {
+            const assetInfo: any = await Editor.Message.request('asset-db', 'query-asset-info', prefabPath);
+            if (!assetInfo) {
+                return { success: false, error: 'Prefab file does not exist' };
             }
-        });
+            const result = await this.verifyPrefabOutput(prefabPath);
+            return {
+                success: true,
+                data: {
+                    isValid: result.isValid,
+                    issues: result.issues,
+                    nodeCount: result.nodeCount,
+                    componentCount: result.componentCount,
+                    message: result.isValid ? 'Prefab format is valid' : 'Prefab format has issues'
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: `Error occurred while validating prefab: ${err?.message || String(err)}` };
+        }
     }
 
     private validatePrefabFormat(prefabData: any): { isValid: boolean; issues: string[]; nodeCount: number; componentCount: number } {

@@ -1,4 +1,4 @@
-import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, PerformanceStats, ValidationResult, ValidationIssue } from '../types';
+import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, ValidationResult, ValidationIssue } from '../types';
 import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -284,9 +284,10 @@ export class DebugTools implements ToolExecutor {
                     resolve({ success: true, data: tree });
                 });
             } else {
-                Editor.Message.request('scene', 'query-hierarchy').then(async (hierarchy: any) => {
+                Editor.Message.request('scene', 'query-node-tree').then(async (hierarchy: any) => {
+                    const roots = Array.isArray(hierarchy) ? hierarchy : (hierarchy?.children || []);
                     const trees = [];
-                    for (const rootNode of hierarchy.children) {
+                    for (const rootNode of roots) {
                         const tree = await buildTree(rootNode.uuid);
                         trees.push(tree);
                     }
@@ -299,26 +300,14 @@ export class DebugTools implements ToolExecutor {
     }
 
     private async getPerformanceStats(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-performance').then((stats: any) => {
-                const perfStats: PerformanceStats = {
-                    nodeCount: stats.nodeCount || 0,
-                    componentCount: stats.componentCount || 0,
-                    drawCalls: stats.drawCalls || 0,
-                    triangles: stats.triangles || 0,
-                    memory: stats.memory || {}
-                };
-                resolve({ success: true, data: perfStats });
-            }).catch(() => {
-                // Fallback to basic stats
-                resolve({
-                    success: true,
-                    data: {
-                        message: 'Performance stats not available in edit mode'
-                    }
-                });
-            });
-        });
+        // Cocos 3.8.x does not expose a scene performance query in the editor.
+        // Return a stub so the tool does not throw "Message does not exist".
+        return {
+            success: true,
+            data: {
+                message: 'Performance stats not available in editor (no public API in Cocos 3.8.x)'
+            }
+        };
     }
 
     private async validateScene(options: any): Promise<ToolResponse> {
@@ -327,21 +316,23 @@ export class DebugTools implements ToolExecutor {
         try {
             // Check for missing assets
             if (options.checkMissingAssets) {
-                const assetCheck = await Editor.Message.request('scene', 'check-missing-assets');
-                if (assetCheck && assetCheck.missing) {
+                const missing: any = await Editor.Message.request('scene', 'query-nodes-miss-assets');
+                const missingList = Array.isArray(missing) ? missing : (missing?.missing || []);
+                if (missingList.length) {
                     issues.push({
                         type: 'error',
                         category: 'assets',
-                        message: `Found ${assetCheck.missing.length} missing asset references`,
-                        details: assetCheck.missing
+                        message: `Found ${missingList.length} missing asset references`,
+                        details: missingList
                     });
                 }
             }
 
             // Check for performance issues
             if (options.checkPerformance) {
-                const hierarchy = await Editor.Message.request('scene', 'query-hierarchy');
-                const nodeCount = this.countNodes(hierarchy.children);
+                const hierarchy: any = await Editor.Message.request('scene', 'query-node-tree');
+                const roots = Array.isArray(hierarchy) ? hierarchy : (hierarchy?.children || []);
+                const nodeCount = this.countNodes(roots);
 
                 if (nodeCount > 1000) {
                     issues.push({
