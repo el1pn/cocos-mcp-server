@@ -8,7 +8,9 @@
     "scripts": {
         "preinstall": "node ./scripts/preinstall.js",
         "build": "tsc",
-        "watch": "tsc -w"
+        "watch": "tsc -w",
+        "audit:messages": "node ./scripts/audit-messages.js",
+        "build:cocos-inventory": "node ./scripts/build-cocos-inventory.js"
     },
     "description": "i18n:cocos-mcp-server.description",
     "main": "./dist/main.js",
