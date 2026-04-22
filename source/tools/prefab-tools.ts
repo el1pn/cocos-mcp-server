@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import { ToolDefinition, ToolResponse, ToolExecutor, PrefabInfo } from '../types';
 import { logger } from '../logger';
 import { validateAssetUrl } from '../utils/asset-safety';
@@ -290,20 +291,76 @@ export class PrefabTools implements ToolExecutor {
                 method: 'createPrefabFromNode',
                 args: [nodeUuid, prefabPath]
             });
-            if (result && result.success) {
+            if (!result || !result.success) {
+                return { success: false, error: result?.error || 'Unknown engine error' };
+            }
+
+            const validation = await this.verifyPrefabOutput(prefabPath);
+            if (!validation.isValid) {
                 return {
-                    success: true,
-                    data: {
-                        ...result.data,
-                        path: prefabPath,
-                        convertedToPrefabInstance: true
-                    },
-                    message: 'Prefab created via engine PrefabManager'
+                    success: false,
+                    error: 'Prefab created but failed post-op validation',
+                    data: { ...result.data, path: prefabPath, issues: validation.issues }
                 };
             }
-            return { success: false, error: result?.error || 'Unknown engine error' };
+
+            return {
+                success: true,
+                data: {
+                    ...result.data,
+                    path: prefabPath,
+                    convertedToPrefabInstance: true,
+                    validation: {
+                        nodeCount: validation.nodeCount,
+                        componentCount: validation.componentCount
+                    }
+                },
+                message: 'Prefab created via engine PrefabManager'
+            };
         } catch (err: any) {
             return { success: false, error: err?.message || String(err) };
+        }
+    }
+
+    /**
+     * Post-op sanity check on a newly created prefab. Catches semantic corruption
+     * that the engine call reports as success — the class of bug that motivated
+     * the move off the legacy hand-synth pipeline.
+     */
+    private async verifyPrefabOutput(prefabPath: string): Promise<{ isValid: boolean; issues: string[]; nodeCount: number; componentCount: number }> {
+        const issues: string[] = [];
+        try {
+            const diskPath = await Editor.Message.request('asset-db', 'query-path', prefabPath);
+            if (!diskPath || typeof diskPath !== 'string') {
+                issues.push(`Could not resolve disk path for ${prefabPath}`);
+                return { isValid: false, issues, nodeCount: 0, componentCount: 0 };
+            }
+            const content = fs.readFileSync(diskPath, 'utf8');
+            const data = JSON.parse(content);
+            const format = this.validatePrefabFormat(data);
+            issues.push(...format.issues);
+
+            if (Array.isArray(data)) {
+                const compressedUuid = /^[0-9a-f]{5}[A-Za-z0-9+/]{18}$/;
+                for (const obj of data) {
+                    const t = obj?.__type__;
+                    if (typeof t !== 'string' || t.startsWith('cc.')) continue;
+                    const looksLikeComponent = obj.node && typeof obj.node === 'object' && '__id__' in obj.node;
+                    if (looksLikeComponent && !compressedUuid.test(t)) {
+                        issues.push(`Component has class-name __type__ "${t}" (expected compressed UUID). This indicates the engine serializer returned an unregistered script — ensure the class is decorated with @ccclass and the script is reimported.`);
+                    }
+                }
+            }
+
+            return {
+                isValid: issues.length === 0,
+                issues,
+                nodeCount: format.nodeCount,
+                componentCount: format.componentCount
+            };
+        } catch (err: any) {
+            issues.push(`Failed to read/parse prefab for validation: ${err?.message || String(err)}`);
+            return { isValid: false, issues, nodeCount: 0, componentCount: 0 };
         }
     }
 
