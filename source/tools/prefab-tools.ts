@@ -393,7 +393,12 @@ export class PrefabTools implements ToolExecutor {
                 args: [nodeUuid]
             });
             if (result && result.success) {
-                return { success: true, message: 'Prefab instance reverted successfully' };
+                const applied = result.data?.applied !== false;
+                return {
+                    success: true,
+                    data: result.data,
+                    message: applied ? 'Prefab instance reverted successfully' : 'No overrides to revert'
+                };
             }
             return { success: false, error: result?.error || 'Unknown engine error' };
         } catch (err: any) {

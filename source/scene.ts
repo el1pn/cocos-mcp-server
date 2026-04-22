@@ -342,11 +342,10 @@ export const methods: { [key: string]: (...any: any) => any } = {
                     error: 'cce.Prefab.revertPrefab not available in this Cocos Creator version'
                 };
             }
-            const ok = await mgr.revertPrefab(nodeUuid);
-            if (ok === false) {
-                return { success: false, error: 'revertPrefab returned false' };
-            }
-            return { success: true, data: { nodeUuid } };
+            const applied = await mgr.revertPrefab(nodeUuid);
+            // Engine returns false when the node has no overrides to revert —
+            // not an error, just a no-op. Surface it so callers can distinguish.
+            return { success: true, data: { nodeUuid, applied: applied !== false } };
         } catch (error: any) {
             return { success: false, error: error?.message || String(error) };
         }
