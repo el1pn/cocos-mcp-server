@@ -324,51 +324,10 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     /**
-     * Probe the internal PrefabManager API shape. PoC helper — caller uses the result
-     * to decide whether `createPrefabFromNode` can delegate to the engine.
-     */
-    probePrefabManagerAPI() {
-        const cce = (globalThis as any).cce;
-        if (!cce) return { success: true, data: { hasCce: false } };
-
-        const mgr = cce.Prefab;
-        const listProtoMethods = (obj: any): string[] => {
-            const out = new Set<string>();
-            let cur = obj;
-            while (cur && cur !== Object.prototype) {
-                for (const name of Object.getOwnPropertyNames(cur)) {
-                    if (name === 'constructor') continue;
-                    try {
-                        if (typeof (obj as any)[name] === 'function') out.add(name);
-                    } catch {}
-                }
-                cur = Object.getPrototypeOf(cur);
-            }
-            return Array.from(out).sort();
-        };
-
-        const probe: any = { hasCce: true, hasPrefabManager: !!mgr };
-        if (mgr) {
-            probe.prefabManagerMethods = listProtoMethods(mgr);
-            probe.hasCreatePrefabAssetFromNode = typeof mgr.createPrefabAssetFromNode === 'function';
-            probe.hasGeneratePrefabDataFromNode = typeof mgr.generatePrefabDataFromNode === 'function';
-            probe.hasLinkNodeWithPrefabAsset = typeof mgr.linkNodeWithPrefabAsset === 'function';
-            probe.hasApplyPrefab = typeof mgr.applyPrefab === 'function';
-            probe.hasRevertPrefab = typeof mgr.revertPrefab === 'function';
-            const utils = mgr._utils;
-            if (utils) {
-                probe.hasUtils = true;
-                probe.utilsMethods = listProtoMethods(utils);
-            }
-        }
-        return { success: true, data: probe };
-    },
-
-    /**
      * Create a prefab from a node by delegating to the engine's official
-     * PrefabManager.createPrefabAssetFromNode. This replicates the "drag node to Assets"
-     * flow — handles script __type__ compression, @property ref serialization, and
-     * relinks the source node as a prefab instance.
+     * PrefabManager (cce.Prefab.createPrefabAssetFromNode). Replicates the
+     * editor's "drag node to Assets" flow — handles script __type__ compression,
+     * @property ref serialization, and source-node relinking.
      */
     async createPrefabFromNode(nodeUuid: string, url: string) {
         try {
@@ -382,10 +341,7 @@ export const methods: { [key: string]: (...any: any) => any } = {
 
             const prefabUuid = await mgr.createPrefabAssetFromNode(nodeUuid, url);
             if (!prefabUuid) {
-                return {
-                    success: false,
-                    error: 'createPrefabAssetFromNode returned null/undefined'
-                };
+                return { success: false, error: 'createPrefabAssetFromNode returned null/undefined' };
             }
             return {
                 success: true,
