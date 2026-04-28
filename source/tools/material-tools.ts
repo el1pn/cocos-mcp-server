@@ -1,5 +1,4 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
-import { AssetSafety } from '../utils/asset-safety';
 
 export class MaterialTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -7,9 +6,7 @@ export class MaterialTools implements ToolExecutor {
             {
                 name: 'material_manage',
                 description:
-                    'Manage material, texture, and shader/effect assets. Available actions: ' +
-                    'create_material (create a new .mtl material file), ' +
-                    'create_shader (create a new .effect shader file), ' +
+                    'Inspect material, texture, and shader/effect assets. Available actions: ' +
                     'get_info (get asset details by UUID or path), ' +
                     'get_material_list (list all materials), ' +
                     'get_texture_list (list textures in a folder), ' +
@@ -21,7 +18,6 @@ export class MaterialTools implements ToolExecutor {
                         action: {
                             type: 'string',
                             enum: [
-                                'create_material', 'create_shader',
                                 'get_info',
                                 'get_material_list', 'get_texture_list', 'get_shader_list',
                                 'update_texture_meta'
@@ -30,24 +26,11 @@ export class MaterialTools implements ToolExecutor {
                         },
                         url: {
                             type: 'string',
-                            description: 'Asset URL (e.g. db://assets/materials/my-mat.mtl). Required for create_material, create_shader, get_info, update_texture_meta.'
+                            description: 'Asset URL (e.g. db://assets/materials/my-mat.mtl). Required for get_info, update_texture_meta.'
                         },
                         uuid: {
                             type: 'string',
                             description: 'Asset UUID (alternative to url for get_info, update_texture_meta)'
-                        },
-                        effectName: {
-                            type: 'string',
-                            description: 'Effect name for create_material (default: "builtin-standard")',
-                            default: 'builtin-standard'
-                        },
-                        defines: {
-                            type: 'object',
-                            description: 'Shader defines for create_material (key-value pairs)'
-                        },
-                        content: {
-                            type: 'string',
-                            description: 'Shader source code for create_shader action'
                         },
                         folder: {
                             type: 'string',
@@ -67,12 +50,6 @@ export class MaterialTools implements ToolExecutor {
 
     async execute(_toolName: string, args: any): Promise<ToolResponse> {
         switch (args.action) {
-            // Material
-            case 'create_material':
-                return await this.createMaterial(args.url, args.effectName || 'builtin-standard', args.defines);
-            // Shader
-            case 'create_shader':
-                return await this.createShader(args.url, args.content);
             // Info (any asset type)
             case 'get_info':
                 return await this.getAssetInfo(args.url || args.uuid);
@@ -89,91 +66,6 @@ export class MaterialTools implements ToolExecutor {
             default:
                 return { success: false, error: `Unknown action: ${args.action}` };
         }
-    }
-
-    // --- Material ---
-
-    private async createMaterial(url: string, effectName: string, defines?: Record<string, any>): Promise<ToolResponse> {
-        if (!url) return { success: false, error: 'url is required for create_material' };
-
-        const materialJson = {
-            __type__: 'cc.Material',
-            _name: '',
-            _objFlags: 0,
-            _native: '',
-            _effectAsset: {
-                __uuid__: effectName
-            },
-            _techIdx: 0,
-            _defines: defines ? [defines] : [{}],
-            _states: [{}],
-            _props: [{}]
-        };
-
-        const content = JSON.stringify([materialJson], null, 2);
-        const result = await AssetSafety.safeCreateAsset(url.endsWith('.mtl') ? url : url + '.mtl', content);
-
-        return {
-            success: result.success,
-            data: result.success ? { uuid: result.uuid, url: result.url } : undefined,
-            error: result.error
-        };
-    }
-
-    // --- Shader ---
-
-    private async createShader(url: string, content?: string): Promise<ToolResponse> {
-        if (!url) return { success: false, error: 'url is required for create_shader' };
-
-        const shaderContent = content || this.getDefaultEffectTemplate();
-        const result = await AssetSafety.safeCreateAsset(url.endsWith('.effect') ? url : url + '.effect', shaderContent);
-
-        return {
-            success: result.success,
-            data: result.success ? { uuid: result.uuid, url: result.url } : undefined,
-            error: result.error
-        };
-    }
-
-    private getDefaultEffectTemplate(): string {
-        return `CCEffect %{
-  techniques:
-  - name: opaque
-    passes:
-    - vert: vs:vert
-      frag: fs:frag
-      properties:
-        mainColor: { value: [1, 1, 1, 1], editor: { type: color } }
-}%
-
-CCProgram vs %{
-  precision highp float;
-  #include <cc-global>
-  #include <cc-local>
-
-  in vec3 a_position;
-  in vec2 a_texCoord;
-  out vec2 v_uv;
-
-  vec4 vert () {
-    vec4 pos = cc_matViewProj * cc_matWorld * vec4(a_position, 1.0);
-    v_uv = a_texCoord;
-    return pos;
-  }
-}%
-
-CCProgram fs %{
-  precision highp float;
-
-  in vec2 v_uv;
-  uniform Constant {
-    vec4 mainColor;
-  };
-
-  vec4 frag () {
-    return mainColor;
-  }
-}%`;
     }
 
     // --- Texture meta ---

@@ -144,43 +144,14 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'project_build',
-                description: 'Open the build panel and inspect builder state. Actions: open_build_panel (open the build panel), get_build_settings (report builder readiness — full settings are not exposed via MCP), check_builder_status (check if builder worker is ready), run (NOT SUPPORTED — opens the build panel; the user must run the build manually), build (NOT SUPPORTED — opens the build panel; the user must configure and start the build manually). Do not assume run/build actually produced output.',
+                description: 'Inspect Cocos builder state and open the build panel. Actions: open_build_panel (open the build panel), get_build_settings (report builder readiness — full settings are not exposed via MCP), check_builder_status (check if builder worker is ready). Note: actually triggering a build/run/preview is NOT possible from MCP — ask the user to start it manually from the editor.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'The build action to perform',
-                            enum: ['run', 'build', 'get_build_settings', 'open_build_panel', 'check_builder_status']
-                        },
-                        platform: {
-                            type: 'string',
-                            description: 'Target platform (recorded for context only; not actually applied since run/build are not supported via MCP)'
-                        },
-                        debug: {
-                            type: 'boolean',
-                            description: 'Debug build (recorded for context only)',
-                            default: true
-                        }
-                    },
-                    required: ['action']
-                }
-            },
-            {
-                name: 'project_preview',
-                description: 'Preview server control. Actions: start_server (NOT SUPPORTED via MCP — instructs user to start preview manually), stop_server (NOT SUPPORTED via MCP — instructs user to stop preview manually). Both actions return success=false; the LLM should not assume the preview server is running after calling them.',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        action: {
-                            type: 'string',
-                            description: 'The preview action to perform',
-                            enum: ['start_server', 'stop_server']
-                        },
-                        port: {
-                            type: 'number',
-                            description: 'Preview server port (recorded for context only)',
-                            default: 7456
+                            enum: ['get_build_settings', 'open_build_panel', 'check_builder_status']
                         }
                     },
                     required: ['action']
@@ -199,8 +170,6 @@ export class ProjectTools implements ToolExecutor {
                 return await this.executeProjectInfo(args);
             case 'project_build':
                 return await this.executeProjectBuild(args);
-            case 'project_preview':
-                return await this.executeProjectPreview(args);
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
@@ -278,10 +247,6 @@ export class ProjectTools implements ToolExecutor {
 
     private async executeProjectBuild(args: any): Promise<ToolResponse> {
         switch (args.action) {
-            case 'run':
-                return await this.runProject(args.platform);
-            case 'build':
-                return await this.buildProject(args);
             case 'get_build_settings':
                 return await this.getBuildSettings();
             case 'open_build_panel':
@@ -291,53 +256,6 @@ export class ProjectTools implements ToolExecutor {
             default:
                 throw new Error(`Unknown project_build action: ${args.action}`);
         }
-    }
-
-    private async executeProjectPreview(args: any): Promise<ToolResponse> {
-        switch (args.action) {
-            case 'start_server':
-                return this.startPreviewServer(args.port);
-            case 'stop_server':
-                return this.stopPreviewServer();
-            default:
-                throw new Error(`Unknown project_preview action: ${args.action}`);
-        }
-    }
-
-    private async runProject(platform: string = 'browser'): Promise<ToolResponse> {
-        // The Cocos preview API isn't exposed to extensions; we can only open
-        // the build panel. Be honest with the LLM so it doesn't assume the
-        // project is running.
-        try {
-            await editorRequest('builder', 'open');
-        } catch (err: any) {
-            return { success: false, error: err?.message ?? String(err) };
-        }
-        return {
-            success: false,
-            error: 'project_build.run is not supported via MCP — opened the build panel instead. Ask the user to start the preview manually.',
-            instruction: `Build panel opened. The user must start preview/run for platform "${platform}" manually from the editor UI.`
-        };
-    }
-
-    private async buildProject(args: any): Promise<ToolResponse> {
-        // Builder module only exposes 'open' and 'query-worker-ready' — the
-        // actual build pipeline isn't reachable. Don't pretend it ran.
-        try {
-            await editorRequest('builder', 'open');
-        } catch (err: any) {
-            return { success: false, error: err?.message ?? String(err) };
-        }
-        return {
-            success: false,
-            error: 'project_build.build is not supported via MCP — opened the build panel instead. Ask the user to configure and start the build manually.',
-            instruction: `Build panel opened for platform "${args?.platform ?? 'unspecified'}". The user must configure and start the build manually.`,
-            data: {
-                platform: args?.platform ?? null,
-                debug: args?.debug !== false,
-                actuallyBuilt: false
-            }
-        };
     }
 
     private async getProjectInfo(): Promise<ToolResponse> {
@@ -551,22 +469,6 @@ export class ProjectTools implements ToolExecutor {
                 }
             })
         );
-    }
-
-    private startPreviewServer(_port: number = 7456): ToolResponse {
-        return {
-            success: false,
-            error: 'Preview server control is not supported through MCP API',
-            instruction: 'Please start the preview server manually using the editor menu: Project > Preview, or use the preview panel in the editor'
-        };
-    }
-
-    private stopPreviewServer(): ToolResponse {
-        return {
-            success: false,
-            error: 'Preview server control is not supported through MCP API',
-            instruction: 'Please stop the preview server manually using the preview panel in the editor'
-        };
     }
 
     private async createAsset(url: string, content: string | null = null, overwrite: boolean = false): Promise<ToolResponse> {

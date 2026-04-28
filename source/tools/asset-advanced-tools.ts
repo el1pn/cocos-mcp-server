@@ -7,22 +7,18 @@ export class AssetAdvancedTools implements ToolExecutor {
         return [
             {
                 name: 'asset_advanced',
-                description: 'Advanced asset operations: save meta, generate URLs, check DB readiness, open externally, get dependencies, find unused assets. Use the "action" parameter to select the operation.',
+                description: 'Advanced asset operations: generate available URLs, check DB readiness, get dependencies, find unused assets. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'The action to perform',
-                            enum: ['save_meta', 'generate_url', 'query_db_ready', 'open_external', 'get_dependencies', 'get_unused']
+                            enum: ['generate_url', 'query_db_ready', 'get_dependencies', 'get_unused']
                         },
                         urlOrUUID: {
                             type: 'string',
-                            description: 'Asset URL or UUID (used by: save_meta, open_external, get_dependencies)'
-                        },
-                        content: {
-                            type: 'string',
-                            description: 'Asset meta serialized content string (used by: save_meta)'
+                            description: 'Asset URL or UUID (used by: get_dependencies)'
                         },
                         url: {
                             type: 'string',
@@ -61,14 +57,14 @@ export class AssetAdvancedTools implements ToolExecutor {
             },
             {
                 name: 'asset_batch',
-                description: 'Batch asset operations: import, delete, validate references, compress textures, export manifest. Use the "action" parameter to select the operation.',
+                description: 'Batch asset operations: import, delete, validate references, scan scene for missing refs. Use the "action" parameter to select the operation.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'The action to perform',
-                            enum: ['import', 'delete', 'validate_references', 'compress_textures', 'export_manifest', 'scan_scene_refs']
+                            enum: ['import', 'delete', 'validate_references', 'scan_scene_refs']
                         },
                         sourceDirectory: {
                             type: 'string',
@@ -101,25 +97,8 @@ export class AssetAdvancedTools implements ToolExecutor {
                         },
                         directory: {
                             type: 'string',
-                            description: 'Directory to operate on (used by: validate_references, compress_textures, export_manifest)',
+                            description: 'Directory to operate on (used by: validate_references)',
                             default: 'db://assets'
-                        },
-                        format: {
-                            type: 'string',
-                            description: 'Format for compression (enum: auto, jpg, png, webp) or export (enum: json, csv, xml) (used by: compress_textures, export_manifest)',
-                            default: 'auto'
-                        },
-                        quality: {
-                            type: 'number',
-                            description: 'Compression quality 0.1-1.0 (used by: compress_textures)',
-                            minimum: 0.1,
-                            maximum: 1.0,
-                            default: 0.8
-                        },
-                        includeMetadata: {
-                            type: 'boolean',
-                            description: 'Include asset metadata (used by: export_manifest)',
-                            default: true
                         }
                     },
                     required: ['action']
@@ -132,14 +111,10 @@ export class AssetAdvancedTools implements ToolExecutor {
         switch (toolName) {
             case 'asset_advanced': {
                 switch (args.action) {
-                    case 'save_meta':
-                        return await this.saveAssetMeta(args.urlOrUUID, args.content);
                     case 'generate_url':
                         return await this.generateAvailableUrl(args.url);
                     case 'query_db_ready':
                         return await this.queryAssetDbReady();
-                    case 'open_external':
-                        return await this.openAssetExternal(args.urlOrUUID);
                     case 'get_dependencies':
                         return await this.getAssetDependencies(args.urlOrUUID, args.direction);
                     case 'get_unused':
@@ -156,10 +131,6 @@ export class AssetAdvancedTools implements ToolExecutor {
                         return await this.batchDeleteAssets(args.urls);
                     case 'validate_references':
                         return await this.validateAssetReferences(args.directory);
-                    case 'compress_textures':
-                        return await this.compressTextures(args.directory, args.format, args.quality);
-                    case 'export_manifest':
-                        return await this.exportAssetManifest(args.directory, args.format, args.includeMetadata);
                     case 'scan_scene_refs':
                         return await this.scanSceneMissingRefs();
                     default:
@@ -169,23 +140,6 @@ export class AssetAdvancedTools implements ToolExecutor {
             default:
                 throw new Error(`Unknown tool: ${toolName}`);
         }
-    }
-
-    private async saveAssetMeta(urlOrUUID: string, content: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'save-asset-meta', urlOrUUID, content).then((result: any) => {
-                resolve({
-                    success: true,
-                    data: {
-                        uuid: result?.uuid,
-                        url: result?.url,
-                        message: 'Asset meta saved successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
     }
 
     private async generateAvailableUrl(url: string): Promise<ToolResponse> {
@@ -216,19 +170,6 @@ export class AssetAdvancedTools implements ToolExecutor {
                         ready: ready,
                         message: ready ? 'Asset database is ready' : 'Asset database is not ready'
                     }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
-    }
-
-    private async openAssetExternal(urlOrUUID: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'open-asset', urlOrUUID).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Asset opened with external program'
                 });
             }).catch((err: Error) => {
                 resolve({ success: false, error: err.message });
@@ -423,6 +364,9 @@ export class AssetAdvancedTools implements ToolExecutor {
             const NODE_BATCH = 10;
             const uuidToRefs = new Map<string, { nodeUuid: string; nodeName: string; componentType: string; property: string }[]>();
 
+            // Track component-instance uuids so we can exclude them from "asset" candidates below.
+            const componentUuidSet = new Set<string>();
+
             for (let i = 0; i < nodeUuids.length; i += NODE_BATCH) {
                 const batch = nodeUuids.slice(i, i + NODE_BATCH);
                 const results = await Promise.all(
@@ -434,14 +378,21 @@ export class AssetAdvancedTools implements ToolExecutor {
                     const nodeUuid = batch[j];
                     const nodeName = nodeData.name?.value ?? nodeData.name ?? nodeUuid;
                     for (const comp of nodeData.__comps__ as any[]) {
-                        const compType = (comp as any).__type__ || (comp as any).type || 'Unknown';
+                        const compType = (comp as any).__type__ || (comp as any).cid || (comp as any).type || 'Unknown';
+                        // Component instance uuid lives at comp.value.uuid.value (raw query-node shape) or comp.uuid.
+                        const compInstanceUuid = (comp as any).value?.uuid?.value || (comp as any).uuid?.value || (comp as any).uuid;
+                        if (typeof compInstanceUuid === 'string' && compInstanceUuid.length > 0) {
+                            componentUuidSet.add(compInstanceUuid);
+                        }
                         this.collectRefUuids(comp as any, compType, nodeUuid, String(nodeName), uuidToRefs);
                     }
                 }
             }
 
-            // Remove node-to-node refs (UUIDs that are scene nodes, not assets)
+            // Remove non-asset uuids: scene node uuids and component-instance uuids both surface as `{uuid}`
+            // refs but are not assets in the asset-db.
             for (const uuid of nodeUuidSet) uuidToRefs.delete(uuid);
+            for (const uuid of componentUuidSet) uuidToRefs.delete(uuid);
 
             // Step 3: Validate unique asset UUIDs against asset-db in parallel batches
             const uniqueUuids = Array.from(uuidToRefs.keys());
@@ -492,31 +443,60 @@ export class AssetAdvancedTools implements ToolExecutor {
         nodeName: string,
         uuidToRefs: Map<string, { nodeUuid: string; nodeName: string; componentType: string; property: string }[]>
     ): void {
-        const skip = new Set(['__type__', 'cid', 'node', 'uuid', '_id', '__scriptAsset', 'enabled', 'type', 'readonly', 'visible', 'editor', 'extends']);
+        // Walk the Cocos query-node component shape. Editable fields live under either `comp.value`
+        // (raw scene payload) or directly on `comp` (some builds). Each field is a descriptor of the
+        // form `{ name, value, type, ... }` where `value` holds the actual data.
+        // We attribute refs to the OUTER key (e.g. `cameraComponent`), not the descriptor's literal `value`.
+        const isDescriptor = (v: any): boolean =>
+            v && typeof v === 'object' && !Array.isArray(v) && 'value' in v && ('type' in v || 'name' in v);
 
-        const extractUuid = (val: any, propName: string) => {
-            if (!val || typeof val !== 'object') return;
-            // Unwrap descriptor: { value: ..., type: ... }
-            if ('value' in val && !('uuid' in val) && !('__uuid__' in val)) {
-                extractUuid(val.value, propName);
-                return;
-            }
-            // Direct ref: { uuid: "..." } or { __uuid__: "..." }
-            const uuid = val.uuid || val.__uuid__;
-            if (uuid && typeof uuid === 'string') {
-                if (!uuidToRefs.has(uuid)) uuidToRefs.set(uuid, []);
-                uuidToRefs.get(uuid)!.push({ nodeUuid, nodeName, componentType: compType, property: propName });
-                return;
-            }
-            // Array of refs
+        const seen = new WeakSet<object>();
+        const recordRef = (uuid: string, propName: string) => {
+            if (!uuidToRefs.has(uuid)) uuidToRefs.set(uuid, []);
+            uuidToRefs.get(uuid)!.push({ nodeUuid, nodeName, componentType: compType, property: propName });
+        };
+
+        const walkValue = (val: any, propName: string, depth: number) => {
+            if (val === null || val === undefined || depth > 12) return;
+            if (typeof val !== 'object') return;
+            if (seen.has(val)) return;
+            seen.add(val);
+
+            // Array: recurse each item, keep propName
             if (Array.isArray(val)) {
-                for (const item of val) extractUuid(item, propName);
+                for (const item of val) walkValue(item, propName, depth + 1);
+                return;
+            }
+
+            // Direct ref shape `{ uuid }` or `{ __uuid__ }`. Filter empty strings (unset slots).
+            const uuid = (val as any).uuid ?? (val as any).__uuid__;
+            if (typeof uuid === 'string' && uuid.length > 0) {
+                recordRef(uuid, propName);
+                return;
+            }
+
+            // Descriptor wrapper `{ name, value, type, ... }` — recurse into `value` only, keep propName.
+            if (isDescriptor(val)) {
+                walkValue((val as any).value, propName, depth + 1);
+                return;
+            }
+
+            // Plain object: each own key becomes the new propName for its subtree.
+            for (const key of Object.keys(val)) {
+                if (key.startsWith('_')) continue; // skip private mirrors like `_color`
+                walkValue((val as any)[key], key, depth + 1);
             }
         };
 
-        for (const key of Object.keys(comp)) {
-            if (skip.has(key) || key.startsWith('_')) continue;
-            extractUuid(comp[key], key);
+        // Top-level: handle both shapes (`comp.value` wrapper and direct).
+        const root = comp && typeof comp === 'object' && comp.value && typeof comp.value === 'object' ? comp.value : comp;
+        for (const key of Object.keys(root)) {
+            if (key.startsWith('_')) continue;
+            // Skip wrapper metadata keys at the component root.
+            if (['__type__', 'cid', 'enabled', 'type', 'name', 'uuid'].includes(key)) continue;
+            // `node` is the back-pointer to the owning node — never an asset.
+            if (key === 'node') continue;
+            walkValue((root as any)[key], key, 0);
         }
     }
 
@@ -797,112 +777,6 @@ export class AssetAdvancedTools implements ToolExecutor {
         } catch (err: any) {
             return { success: false, error: `Unused asset detection failed: ${err.message}` };
         }
-    }
-
-    private async compressTextures(directory: string = 'db://assets', format: string = 'auto', quality: number = 0.8): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: Texture compression would require image processing APIs
-            resolve({
-                success: false,
-                error: 'Texture compression requires image processing capabilities not available in current Cocos Creator MCP implementation. Use the Editor\'s built-in texture compression settings or external tools.'
-            });
-        });
-    }
-
-    private async exportAssetManifest(directory: string = 'db://assets', format: string = 'json', includeMetadata: boolean = true): Promise<ToolResponse> {
-        try {
-            const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
-
-            const manifest: any[] = [];
-
-            for (const asset of assets) {
-                const manifestEntry: any = {
-                    name: asset.name,
-                    url: asset.url,
-                    uuid: asset.uuid,
-                    type: asset.type,
-                    size: (asset as any).size || 0,
-                    isDirectory: asset.isDirectory || false
-                };
-
-                if (includeMetadata) {
-                    try {
-                        const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
-                        if (assetInfo && assetInfo.meta) {
-                            manifestEntry.meta = assetInfo.meta;
-                        }
-                    } catch (err) {
-                        // Skip metadata if not available
-                    }
-                }
-
-                manifest.push(manifestEntry);
-            }
-
-            let exportData: string;
-            switch (format) {
-                case 'json':
-                    exportData = JSON.stringify(manifest, null, 2);
-                    break;
-                case 'csv':
-                    exportData = this.convertToCSV(manifest);
-                    break;
-                case 'xml':
-                    exportData = this.convertToXML(manifest);
-                    break;
-                default:
-                    exportData = JSON.stringify(manifest, null, 2);
-            }
-
-            return {
-                success: true,
-                data: {
-                    directory: directory,
-                    format: format,
-                    assetCount: manifest.length,
-                    includeMetadata: includeMetadata,
-                    manifest: exportData,
-                    message: `Asset manifest exported with ${manifest.length} assets`
-                }
-            };
-        } catch (err: any) {
-            return { success: false, error: err.message };
-        }
-    }
-
-    private convertToCSV(data: any[]): string {
-        if (data.length === 0) return '';
-
-        const headers = Object.keys(data[0]);
-        const csvRows = [headers.join(',')];
-
-        for (const row of data) {
-            const values = headers.map(header => {
-                const value = row[header];
-                return typeof value === 'object' ? JSON.stringify(value) : String(value);
-            });
-            csvRows.push(values.join(','));
-        }
-
-        return csvRows.join('\n');
-    }
-
-    private convertToXML(data: any[]): string {
-        let xml = '<?xml version="1.0" encoding="UTF-8"?>\n<assets>\n';
-
-        for (const item of data) {
-            xml += '  <asset>\n';
-            for (const [key, value] of Object.entries(item)) {
-                const xmlValue = typeof value === 'object' ?
-                    JSON.stringify(value) :
-                    String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-                xml += `    <${key}>${xmlValue}</${key}>\n`;
-            }
-            xml += '  </asset>\n';
-        }
-
-        xml += '</assets>';
-        return xml;
     }
 
     // --- Helper methods for dependency and unused asset analysis ---

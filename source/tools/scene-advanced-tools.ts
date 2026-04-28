@@ -5,7 +5,7 @@ export class SceneAdvancedTools implements ToolExecutor {
         return [
             {
                 name: 'scene_state',
-                description: 'Query scene state and manage snapshots/reloads. Actions: query_ready (check if scene is ready), query_dirty (check unsaved changes), query_classes (list registered classes), query_components (list available components), query_component_has_script (check if component has script), query_nodes_by_asset (find nodes using an asset), soft_reload (soft reload scene), snapshot (create scene snapshot), snapshot_abort (abort snapshot creation)',
+                description: 'Query scene state and manage snapshots/reloads. Actions: query_ready (check if scene is ready), query_dirty (check unsaved changes), query_classes (list registered classes), query_components (list available components — supports optional `filter` substring and `limit`, default 200), query_component_has_script (check if component has script), query_nodes_by_asset (find nodes using an asset), soft_reload (soft reload scene), snapshot (create scene snapshot), snapshot_abort (abort snapshot creation)',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -25,6 +25,14 @@ export class SceneAdvancedTools implements ToolExecutor {
                         assetUuid: {
                             type: 'string',
                             description: 'Asset UUID to search for (required for query_nodes_by_asset)'
+                        },
+                        filter: {
+                            type: 'string',
+                            description: 'Substring filter on component name (optional, used by query_components)'
+                        },
+                        limit: {
+                            type: 'number',
+                            description: 'Max items to return (optional, used by query_components, default 200, max 1000)'
                         }
                     },
                     required: ['action']
@@ -48,37 +56,6 @@ export class SceneAdvancedTools implements ToolExecutor {
                         undoId: {
                             type: 'string',
                             description: 'Undo recording ID from begin_recording (required for end_recording, cancel_recording)'
-                        }
-                    },
-                    required: ['action']
-                }
-            },
-            {
-                name: 'node_clipboard',
-                description: 'Clipboard operations for scene nodes. Actions: copy (copy nodes), paste (paste copied nodes to a target parent), cut (cut nodes for moving)',
-                inputSchema: {
-                    type: 'object',
-                    properties: {
-                        action: {
-                            type: 'string',
-                            enum: ['copy', 'paste', 'cut'],
-                            description: 'The action to perform'
-                        },
-                        uuids: {
-                            oneOf: [
-                                { type: 'string' },
-                                { type: 'array', items: { type: 'string' } }
-                            ],
-                            description: 'Node UUID or array of UUIDs (required for copy, paste, cut)'
-                        },
-                        target: {
-                            type: 'string',
-                            description: 'Target parent node UUID (required for paste)'
-                        },
-                        keepWorldTransform: {
-                            type: 'boolean',
-                            description: 'Keep world transform coordinates (used by paste)',
-                            default: false
                         }
                     },
                     required: ['action']
@@ -173,7 +150,7 @@ export class SceneAdvancedTools implements ToolExecutor {
                     case 'query_classes':
                         return await this.querySceneClasses(args.extends);
                     case 'query_components':
-                        return await this.querySceneComponents();
+                        return await this.querySceneComponents(args.filter, args.limit);
                     case 'query_component_has_script':
                         return await this.queryComponentHasScript(args.className);
                     case 'query_nodes_by_asset':
@@ -196,18 +173,6 @@ export class SceneAdvancedTools implements ToolExecutor {
                         return await this.endUndoRecording(args.undoId);
                     case 'cancel_recording':
                         return await this.cancelUndoRecording(args.undoId);
-                    default:
-                        throw new Error(`Unknown action '${args.action}' for tool '${toolName}'`);
-                }
-
-            case 'node_clipboard':
-                switch (args.action) {
-                    case 'copy':
-                        return await this.copyNode(args.uuids);
-                    case 'paste':
-                        return await this.pasteNode(args.target, args.uuids, args.keepWorldTransform);
-                    case 'cut':
-                        return await this.cutNode(args.uuids);
                     default:
                         throw new Error(`Unknown action '${args.action}' for tool '${toolName}'`);
                 }
@@ -297,58 +262,6 @@ export class SceneAdvancedTools implements ToolExecutor {
         });
     }
 
-    private async copyNode(uuids: string | string[]): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'copy-node', uuids).then((result: string | string[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        copiedUuids: result,
-                        message: 'Node(s) copied successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
-    }
-
-    private async pasteNode(target: string, uuids: string | string[], keepWorldTransform: boolean = false): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'paste-node', {
-                target,
-                uuids,
-                keepWorldTransform
-            }).then((result: string | string[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        newUuids: result,
-                        message: 'Node(s) pasted successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
-    }
-
-    private async cutNode(uuids: string | string[]): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'cut-node', uuids).then((result: any) => {
-                resolve({
-                    success: true,
-                    data: {
-                        cutUuids: result,
-                        message: 'Node(s) cut successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
-    }
-
     private async resetNodeTransform(uuid: string): Promise<ToolResponse> {
         return new Promise((resolve) => {
             Editor.Message.request('scene', 'reset-node', { uuid }).then(() => {
@@ -415,6 +328,17 @@ export class SceneAdvancedTools implements ToolExecutor {
                 method,
                 args
             }).then((result: any) => {
+                // Cocos `execute-scene-script` returns the script's actual return value.
+                // A non-existent method silently resolves to `undefined`, indistinguishable from a void return.
+                // Surface this so callers don't treat missing method as success.
+                if (result === undefined) {
+                    resolve({
+                        success: true,
+                        data: null,
+                        warning: `Plugin '${name}' returned undefined for method '${method}'. This may mean the method does not exist OR the method intentionally returns void. Verify the script defines '${method}' before relying on this call's effect.`
+                    });
+                    return;
+                }
                 resolve({
                     success: true,
                     data: result
@@ -560,14 +484,27 @@ export class SceneAdvancedTools implements ToolExecutor {
         });
     }
 
-    private async querySceneComponents(): Promise<ToolResponse> {
+    private async querySceneComponents(filter?: string, limit?: number): Promise<ToolResponse> {
+        // Editor returns ~1000+ entries (~170k chars) which can exceed MCP token limits.
+        // Slim each entry to {name, cid} and apply optional substring filter + limit.
+        const max = typeof limit === 'number' && limit > 0 ? Math.min(limit, 1000) : 200;
         return new Promise((resolve) => {
             Editor.Message.request('scene', 'query-components').then((components: any[]) => {
+                let slim = components.map((c: any) => ({ name: c.name, cid: c.cid }));
+                if (filter) {
+                    const needle = filter.toLowerCase();
+                    slim = slim.filter((c) => (c.name || '').toLowerCase().includes(needle));
+                }
+                const total = slim.length;
+                const truncated = total > max;
                 resolve({
                     success: true,
                     data: {
-                        components: components,
-                        count: components.length
+                        components: slim.slice(0, max),
+                        count: Math.min(total, max),
+                        total,
+                        truncated,
+                        filter: filter || null
                     }
                 });
             }).catch((err: Error) => {

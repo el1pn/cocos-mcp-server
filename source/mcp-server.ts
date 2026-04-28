@@ -13,14 +13,11 @@ import { PreferencesTools } from './tools/preferences-tools';
 import { ServerTools } from './tools/server-tools';
 import { BroadcastTools } from './tools/broadcast-tools';
 import { SceneAdvancedTools } from './tools/scene-advanced-tools';
-import { SceneViewTools } from './tools/scene-view-tools';
-import { ReferenceImageTools } from './tools/reference-image-tools';
 import { AssetAdvancedTools } from './tools/asset-advanced-tools';
 import { ValidationTools } from './tools/validation-tools';
 import { BatchTools } from './tools/batch-tools';
 import { SearchTools } from './tools/search-tools';
 import { EditorTools } from './tools/editor-tools';
-import { AnimationTools } from './tools/animation-tools';
 import { MaterialTools } from './tools/material-tools';
 
 export class MCPServer {
@@ -75,14 +72,11 @@ export class MCPServer {
             this.tools.server = new ServerTools();
             this.tools.broadcast = new BroadcastTools();
             this.tools.sceneAdvanced = new SceneAdvancedTools();
-            this.tools.sceneView = new SceneViewTools();
-            this.tools.referenceImage = new ReferenceImageTools();
             this.tools.assetAdvanced = new AssetAdvancedTools();
             this.tools.validation = new ValidationTools();
             this.tools.batch = new BatchTools(this.executeToolCall.bind(this));
             this.tools.search = new SearchTools();
             this.tools.editor = new EditorTools();
-            this.tools.animation = new AnimationTools();
             this.tools.material = new MaterialTools();
             logger.success('Tools initialized successfully');
         } catch (error) {
@@ -889,7 +883,7 @@ export class MCPServer {
                             'prefab_query (action: get_list/load/get_info/validate), ' +
                             'asset_query (action: get_info/get_assets/find_by_name/get_details/query_path/query_uuid/query_url), ' +
                             'asset_crud (action: create/copy/move/delete/save/reimport/import/refresh), ' +
-                            'project_build (action: run/build/get_build_settings/open_build_panel/check_builder_status), ' +
+                            'project_build (action: get_build_settings/open_build_panel/check_builder_status), ' +
                             'debug_console (action: get_logs/clear/execute_script), ' +
                             'batch_execute (run multiple operations sequentially in one call).'
                     };
