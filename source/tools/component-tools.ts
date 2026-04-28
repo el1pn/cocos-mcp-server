@@ -378,11 +378,24 @@ export class ComponentTools implements ToolExecutor {
         }
     }
 
+    /**
+     * Match a component by its registered type (cid or built-in class name like "cc.Sprite") OR
+     * by a script class name appearing as `<ClassName>` in the component's instance name. Supports
+     * both shapes seen across the codebase: extracted (from getComponents) and raw (from query-node).
+     */
+    private static componentMatches(comp: any, componentType: string): boolean {
+        const t = comp?.type ?? comp?.__type__ ?? comp?.cid;
+        if (t === componentType) return true;
+        const instanceName: string | undefined =
+            comp?.properties?.name?.value ?? comp?.value?.name?.value ?? comp?.name?.value;
+        return typeof instanceName === 'string' && instanceName.endsWith(`<${componentType}>`);
+    }
+
     private async addComponent(nodeUuid: string, componentType: string): Promise<ToolResponse> {
         // First check if the component already exists on the node
         const allComponentsInfo = await this.getComponents(nodeUuid);
         if (allComponentsInfo.success && allComponentsInfo.data?.components) {
-            const existingComponent = allComponentsInfo.data.components.find((comp: any) => comp.type === componentType);
+            const existingComponent = allComponentsInfo.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
             if (existingComponent) {
                 return {
                     success: true,
@@ -408,7 +421,7 @@ export class ComponentTools implements ToolExecutor {
             try {
                 const allComponentsInfo2 = await this.getComponents(nodeUuid);
                 if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
-                    const addedComponent = allComponentsInfo2.data.components.find((comp: any) => comp.type === componentType);
+                    const addedComponent = allComponentsInfo2.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
                     if (addedComponent) {
                         return {
                             success: true,
@@ -460,10 +473,10 @@ export class ComponentTools implements ToolExecutor {
         if (!allComponentsInfo.success || !allComponentsInfo.data?.components) {
             return { success: false, error: `Failed to get components for node '${nodeUuid}': ${allComponentsInfo.error}` };
         }
-        // 2. Find the component instance whose type field equals componentType (i.e., cid)
-        const matched = allComponentsInfo.data.components.find((comp: any) => comp.type === componentType);
+        // 2. Find the component instance — match by cid OR script class name (via instance name suffix).
+        const matched = allComponentsInfo.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
         if (!matched) {
-            return { success: false, error: `Component cid '${componentType}' not found on node '${nodeUuid}'. Please use getComponents to get the type field (cid) as componentType.` };
+            return { success: false, error: `Component '${componentType}' not found on node '${nodeUuid}'. Pass either the registered cid (from get_all) or the script class name.` };
         }
         const componentInstanceUuid: string | null = matched.uuid;
         if (!componentInstanceUuid) {
@@ -476,7 +489,7 @@ export class ComponentTools implements ToolExecutor {
             });
             // 4. Query again to confirm removal
             const afterRemoveInfo = await this.getComponents(nodeUuid);
-            const stillExists = afterRemoveInfo.success && afterRemoveInfo.data?.components?.some((comp: any) => comp.type === componentType);
+            const stillExists = afterRemoveInfo.success && afterRemoveInfo.data?.components?.some((comp: any) => ComponentTools.componentMatches(comp, componentType));
             if (stillExists) {
                 return { success: false, error: `Component cid '${componentType}' was not removed from node '${nodeUuid}'.` };
             } else {
@@ -543,10 +556,7 @@ export class ComponentTools implements ToolExecutor {
             // Try querying node info directly using Editor API first
             Editor.Message.request('scene', 'query-node', nodeUuid).then((nodeData: any) => {
                 if (nodeData && nodeData.__comps__) {
-                    const component = nodeData.__comps__.find((comp: any) => {
-                        const compType = comp.__type__ || comp.cid || comp.type;
-                        return compType === componentType;
-                    });
+                    const component = nodeData.__comps__.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
 
                     if (component) {
                         resolve({
@@ -574,7 +584,7 @@ export class ComponentTools implements ToolExecutor {
 
                 Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
                     if (result.success && result.data.components) {
-                        const component = result.data.components.find((comp: any) => comp.type === componentType);
+                        const component = result.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
                         if (component) {
                             resolve({
                                 success: true,
@@ -698,14 +708,25 @@ export class ComponentTools implements ToolExecutor {
             const allComponents = componentsResponse.data.components;
 
             // Step 2: Find target component
+            // Match by cid first (the canonical id surfaced as `comp.type`).
+            // Custom-script components surface as cid (e.g. "1bd10ELCfBPcZ0I7xqYF2Rk"), so also
+            // accept a script class name by matching the `<ClassName>` suffix in the component's
+            // instance name (Cocos formats it as "<NodeName><ClassName>").
             let targetComponent = null;
             const availableTypes: string[] = [];
+            const classSuffix = `<${componentType}>`;
 
             for (let i = 0; i < allComponents.length; i++) {
                 const comp = allComponents[i];
                 availableTypes.push(comp.type);
 
                 if (comp.type === componentType) {
+                    targetComponent = comp;
+                    break;
+                }
+
+                const instanceName: string | undefined = comp?.properties?.name?.value;
+                if (typeof instanceName === 'string' && instanceName.endsWith(classSuffix)) {
                     targetComponent = comp;
                     break;
                 }
@@ -965,12 +986,19 @@ export class ComponentTools implements ToolExecutor {
                     };
                 }
 
-                // Find original component index
+                // Find original component index. Match by cid first, then by class-name suffix
+                // in the component's instance name (raw query-node shape: comp.value.name.value).
                 let rawComponentIndex = -1;
+                const classSuffixForRaw = `<${componentType}>`;
                 for (let i = 0; i < rawNodeData.__comps__.length; i++) {
                     const comp = rawNodeData.__comps__[i] as any;
                     const compType = comp.__type__ || comp.cid || comp.type || 'Unknown';
                     if (compType === componentType) {
+                        rawComponentIndex = i;
+                        break;
+                    }
+                    const instanceName: string | undefined = comp?.value?.name?.value ?? comp?.name?.value;
+                    if (typeof instanceName === 'string' && instanceName.endsWith(classSuffixForRaw)) {
                         rawComponentIndex = i;
                         break;
                     }
@@ -1257,73 +1285,63 @@ export class ComponentTools implements ToolExecutor {
                         logger.error(`[ComponentTools] Error setting component reference: ${(error as any)?.message ?? String(error)}`);
                         throw error;
                     }
-                } else if (propertyType === 'nodeArray' && Array.isArray(processedValue)) {
-                    // Special handling for node arrays - keep preprocessed format
-                    logger.info(`[ComponentTools] Setting node array: ${JSON.stringify(processedValue)}`);
-
-                    await Editor.Message.request('scene', 'set-property', {
-                        uuid: nodeUuid,
-                        path: propertyPath,
-                        dump: {
-                            value: processedValue  // Keep [{uuid: "..."}, {uuid: "..."}] format
-                        }
-                    });
-                } else if ((propertyType === 'assetArray' || propertyType === 'spriteFrameArray') && Array.isArray(processedValue)) {
-                    // Special handling for asset arrays - set entire array in one request
-                    logger.info(`[ComponentTools] Setting asset array (${propertyType}): ${JSON.stringify(processedValue)}`);
-
-                    // Determine asset type based on property name
-                    let assetType = 'cc.Asset'; // default
-                    if (property.toLowerCase().includes('atlas')) {
-                        assetType = 'cc.SpriteAtlas';
-                    } else if (property.toLowerCase().includes('spriteframe') || propertyType === 'spriteFrameArray') {
-                        assetType = 'cc.SpriteFrame';
-                    } else if (property.toLowerCase().includes('texture')) {
-                        assetType = 'cc.Texture2D';
-                    } else if (property.toLowerCase().includes('material')) {
-                        assetType = 'cc.Material';
-                    } else if (property.toLowerCase().includes('clip')) {
-                        assetType = 'cc.AudioClip';
-                    } else if (property.toLowerCase().includes('prefab')) {
-                        assetType = 'cc.Prefab';
-                    } else if (property.toLowerCase().includes('font')) {
-                        assetType = 'cc.Font';
+                } else if (
+                    Array.isArray(processedValue) &&
+                    ['nodeArray', 'assetArray', 'spriteFrameArray', 'colorArray', 'numberArray', 'stringArray'].includes(propertyType)
+                ) {
+                    // Cocos `set-property` with `dump.value = [items]` does NOT auto-extend the array
+                    // beyond its current length; surplus items are silently dropped. Set per-index using
+                    // path `<propertyPath>.<i>` so Cocos extends the array as needed.
+                    let elementType = '';
+                    if (propertyType === 'nodeArray') {
+                        elementType = 'cc.Node';
+                    } else if (propertyType === 'colorArray') {
+                        elementType = 'cc.Color';
+                    } else if (propertyType === 'numberArray') {
+                        elementType = 'Number';
+                    } else if (propertyType === 'stringArray') {
+                        elementType = 'String';
+                    } else if (propertyType === 'spriteFrameArray') {
+                        elementType = 'cc.SpriteFrame';
+                    } else if (propertyType === 'assetArray') {
+                        // Infer asset element type from property name (mirrors single-asset heuristics).
+                        elementType = 'cc.Asset';
+                        const lower = property.toLowerCase();
+                        if (lower.includes('atlas')) elementType = 'cc.SpriteAtlas';
+                        else if (lower.includes('spriteframe')) elementType = 'cc.SpriteFrame';
+                        else if (lower.includes('texture')) elementType = 'cc.Texture2D';
+                        else if (lower.includes('material')) elementType = 'cc.Material';
+                        else if (lower.includes('clip')) elementType = 'cc.AudioClip';
+                        else if (lower.includes('prefab')) elementType = 'cc.Prefab';
+                        else if (lower.includes('font')) elementType = 'cc.Font';
                     }
 
-                    // Set entire array at once with proper per-element dump format
-                    await Editor.Message.request('scene', 'set-property', {
-                        uuid: nodeUuid,
-                        path: propertyPath,
-                        dump: {
-                            value: processedValue.map((item: any) => ({
-                                value: item,    // { uuid: "..." }
-                                type: assetType
-                            }))
-                        }
-                    });
-                } else if (propertyType === 'colorArray' && Array.isArray(processedValue)) {
-                    // Special handling for color arrays
-                    const colorArrayValue = processedValue.map((item: any) => {
-                        if (item && typeof item === 'object' && 'r' in item) {
-                            return {
-                                r: Math.min(255, Math.max(0, Number(item.r) || 0)),
-                                g: Math.min(255, Math.max(0, Number(item.g) || 0)),
-                                b: Math.min(255, Math.max(0, Number(item.b) || 0)),
-                                a: item.a !== undefined ? Math.min(255, Math.max(0, Number(item.a))) : 255
-                            };
-                        } else {
+                    // Normalize colorArray items (clamp 0-255, ensure alpha).
+                    const items = propertyType === 'colorArray'
+                        ? processedValue.map((item: any) => {
+                            if (item && typeof item === 'object' && 'r' in item) {
+                                return {
+                                    r: Math.min(255, Math.max(0, Number(item.r) || 0)),
+                                    g: Math.min(255, Math.max(0, Number(item.g) || 0)),
+                                    b: Math.min(255, Math.max(0, Number(item.b) || 0)),
+                                    a: item.a !== undefined ? Math.min(255, Math.max(0, Number(item.a))) : 255
+                                };
+                            }
                             return { r: 255, g: 255, b: 255, a: 255 };
-                        }
-                    });
+                        })
+                        : processedValue;
 
-                    await Editor.Message.request('scene', 'set-property', {
-                        uuid: nodeUuid,
-                        path: propertyPath,
-                        dump: {
-                            value: colorArrayValue as any,
-                            type: 'cc.Color'
-                        }
-                    });
+                    logger.info(`[ComponentTools] Setting ${propertyType} per-index (${items.length} items, elementType=${elementType})`);
+                    for (let i = 0; i < items.length; i++) {
+                        await Editor.Message.request('scene', 'set-property', {
+                            uuid: nodeUuid,
+                            path: `${propertyPath}.${i}`,
+                            dump: {
+                                value: items[i],
+                                type: elementType
+                            }
+                        });
+                    }
                 } else {
                     // Normal property setting for non-asset properties
                     await Editor.Message.request('scene', 'set-property', {
