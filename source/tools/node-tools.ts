@@ -352,7 +352,8 @@ export class NodeTools implements ToolExecutor {
                     await new Promise(resolve => setTimeout(resolve, 100)); // Wait for node creation to complete
                     for (const componentType of args.components) {
                         try {
-                            const result = await this.componentTools.execute('add_component', {
+                            const result = await this.componentTools.execute('component_manage', {
+                                action: 'add',
                                 nodeUuid: uuid,
                                 componentType: componentType
                             });
@@ -455,7 +456,7 @@ export class NodeTools implements ToolExecutor {
                     parent: nodeData.parent?.value?.uuid || null,
                     children: nodeData.children || [],
                     components: (nodeData.__comps__ || []).map((comp: any) => ({
-                        type: comp.__type__ || 'Unknown',
+                        type: comp.__type__ || comp.cid || comp.type || 'Unknown',
                         enabled: comp.enabled !== undefined ? comp.enabled : true
                     })),
                     layer: nodeData.layer?.value || 1073741824,
@@ -921,11 +922,14 @@ export class NodeTools implements ToolExecutor {
     private async duplicateNode(uuid: string, includeChildren: boolean = true): Promise<ToolResponse> {
         return new Promise((resolve) => {
             // Note: includeChildren parameter is accepted for future use but not currently implemented
+            // Cocos `duplicate-node` returns string[] of new node UUIDs.
             Editor.Message.request('scene', 'duplicate-node', uuid).then((result: any) => {
+                const newUuids: string[] = Array.isArray(result) ? result : (result?.uuid ? [result.uuid] : []);
                 resolve({
                     success: true,
                     data: {
-                        newUuid: result.uuid,
+                        newUuids,
+                        newUuid: newUuids[0] ?? null,
                         message: 'Node duplicated successfully'
                     }
                 });

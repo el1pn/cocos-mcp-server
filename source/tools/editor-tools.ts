@@ -8,7 +8,7 @@ export class EditorTools implements ToolExecutor {
                 name: 'editor_actions',
                 description:
                     'Perform editor-level actions. Available actions: ' +
-                    'execute_menu (trigger an editor menu action by path), ' +
+                    'execute_menu (trigger an editor menu action by path — WARNING: can fire destructive/irreversible commands such as File/Save Scene, Project/Build, scene reload, asset reimport. Confirm with the user before invoking any menu that mutates project state, opens dialogs, or saves files), ' +
                     'apply_text_edits (apply insert/delete/replace edits to a file), ' +
                     'find_references (find all references to a node or asset UUID in the current scene).',
                 inputSchema: {
@@ -21,7 +21,7 @@ export class EditorTools implements ToolExecutor {
                         },
                         menuPath: {
                             type: 'string',
-                            description: 'Full menu path for execute_menu (e.g. "Project/Build", "File/Save Scene")'
+                            description: 'Full menu path for execute_menu (e.g. "Project/Build", "File/Save Scene"). WARNING: many menu items mutate project state (saves, builds, reimports). Get explicit user approval before invoking destructive paths.'
                         },
                         filePath: {
                             type: 'string',

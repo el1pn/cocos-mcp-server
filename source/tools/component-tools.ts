@@ -460,16 +460,19 @@ export class ComponentTools implements ToolExecutor {
         if (!allComponentsInfo.success || !allComponentsInfo.data?.components) {
             return { success: false, error: `Failed to get components for node '${nodeUuid}': ${allComponentsInfo.error}` };
         }
-        // 2. Only find components whose type field equals componentType (i.e., cid)
-        const exists = allComponentsInfo.data.components.some((comp: any) => comp.type === componentType);
-        if (!exists) {
+        // 2. Find the component instance whose type field equals componentType (i.e., cid)
+        const matched = allComponentsInfo.data.components.find((comp: any) => comp.type === componentType);
+        if (!matched) {
             return { success: false, error: `Component cid '${componentType}' not found on node '${nodeUuid}'. Please use getComponents to get the type field (cid) as componentType.` };
         }
-        // 3. Remove directly using official API
+        const componentInstanceUuid: string | null = matched.uuid;
+        if (!componentInstanceUuid) {
+            return { success: false, error: `Component cid '${componentType}' on node '${nodeUuid}' has no instance uuid; cannot remove.` };
+        }
+        // 3. Remove via official API. RemoveComponentOptions.uuid is the COMPONENT instance uuid, not the node uuid.
         try {
             await Editor.Message.request('scene', 'remove-component', {
-                uuid: nodeUuid,
-                component: componentType
+                uuid: componentInstanceUuid
             });
             // 4. Query again to confirm removal
             const afterRemoveInfo = await this.getComponents(nodeUuid);
@@ -495,7 +498,8 @@ export class ComponentTools implements ToolExecutor {
                 if (nodeData && nodeData.__comps__) {
                     const components = nodeData.__comps__.map((comp: any) => ({
                         type: comp.__type__ || comp.cid || comp.type || 'Unknown',
-                        uuid: comp.uuid?.value || comp.uuid || null,
+                        // query-node nests instance uuid at comp.value.uuid.value; keep older shapes as fallback.
+                        uuid: comp.value?.uuid?.value || comp.uuid?.value || comp.uuid || null,
                         enabled: comp.enabled !== undefined ? comp.enabled : true,
                         properties: this.extractComponentProperties(comp)
                     }));
@@ -1401,10 +1405,29 @@ export class ComponentTools implements ToolExecutor {
         if (!scriptName) {
             return { success: false, error: 'Invalid script path' };
         }
+        // Resolve script asset uuid so we can match attached component reliably.
+        // Custom-script components surface as cid in `comp.type`, NOT as the class name —
+        // so name-based comparison gives false negatives. Match via __scriptAsset.value.uuid instead.
+        let scriptAssetUuid: string | null = null;
+        try {
+            scriptAssetUuid = await Editor.Message.request('asset-db', 'query-uuid', scriptPath) as string;
+        } catch {
+            // Fallback to name-based match if uuid lookup fails.
+        }
+        const matchesScript = (comp: any): boolean => {
+            const compScriptUuid = comp?.properties?.__scriptAsset?.value?.uuid;
+            if (scriptAssetUuid && compScriptUuid) {
+                return compScriptUuid === scriptAssetUuid;
+            }
+            // Fallback: registered class name (rare for custom scripts) or instance name suffix `<ClassName>`.
+            if (comp.type === scriptName) return true;
+            const instanceName: string | undefined = comp?.properties?.name?.value;
+            return !!instanceName && instanceName.endsWith(`<${scriptName}>`);
+        };
         // First check if the script component already exists on the node
         const allComponentsInfo = await this.getComponents(nodeUuid);
         if (allComponentsInfo.success && allComponentsInfo.data?.components) {
-            const existingScript = allComponentsInfo.data.components.find((comp: any) => comp.type === scriptName);
+            const existingScript = allComponentsInfo.data.components.find(matchesScript);
             if (existingScript) {
                 return {
                     success: true,
@@ -1428,7 +1451,7 @@ export class ComponentTools implements ToolExecutor {
             // Re-query node info to verify script was actually added
             const allComponentsInfo2 = await this.getComponents(nodeUuid);
             if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
-                const addedScript = allComponentsInfo2.data.components.find((comp: any) => comp.type === scriptName);
+                const addedScript = allComponentsInfo2.data.components.find(matchesScript);
                 if (addedScript) {
                     return {
                         success: true,
