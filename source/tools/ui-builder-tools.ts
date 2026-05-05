@@ -112,8 +112,8 @@ export class UIBuilderTools implements ToolExecutor {
         }
 
         return {
-            success: ctx.warnings.length === 0,
-            message: `Built UI '${spec.name}' with ${ctx.createdNodeUuids.length} node(s)`,
+            success: !!rootUuid,
+            message: `Built UI '${spec.name}' with ${ctx.createdNodeUuids.length} node(s)${ctx.warnings.length > 0 ? ` (${ctx.warnings.length} warning(s))` : ''}`,
             warning: ctx.warnings.length > 0 ? ctx.warnings.join('\n') : undefined,
             data: {
                 rootUuid,

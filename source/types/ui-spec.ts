@@ -89,7 +89,6 @@ export interface UIBuildRequest {
     spec: UISpec;
     parentUuid?: string;
     saveAsPrefab?: string;
-    wrapInUndo?: boolean;
 }
 
 export interface UIBuildResult {
