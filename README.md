@@ -5,10 +5,7 @@ MCP server plugin for Cocos Creator 3.8+. Lets AI assistants (Claude, Cursor, VS
 ## Installation
 
 ```bash
-# Copy to your project's extensions folder
 cp -r cocos-mcp-server YourProject/extensions/
-
-# Install & build
 cd YourProject/extensions/cocos-mcp-server
 npm install && npm run build
 ```
@@ -17,22 +14,14 @@ Restart Cocos Creator, then open `Extension > Cocos MCP Server` and click **Star
 
 ## Connect AI Client
 
-### HTTP (recommended)
+Default endpoint: `http://127.0.0.1:3000/mcp` (Streamable HTTP, with `/sse` legacy fallback). Port configurable via plugin panel or `MCP_PORT`.
 
-Implements MCP Streamable HTTP (`/mcp`) with:
-
-- `POST /mcp` for JSON-RPC messages
-- `GET /mcp` for SSE stream
-- `DELETE /mcp` for session termination
-- Session header: `Mcp-Session-Id`
-- Protocol header: `MCP-Protocol-Version`
-
-**Claude Code CLI (Cocos Creator 3.x):**
+**Claude Code CLI:**
 ```
 claude mcp add --transport http cocos-creator-3x http://127.0.0.1:3000/mcp
 ```
 
-**Claude Desktop:**
+**Claude Desktop / Cursor / VS Code / Trae / Windsurf / Codex:**
 ```json
 {
   "mcpServers": {
@@ -44,66 +33,7 @@ claude mcp add --transport http cocos-creator-3x http://127.0.0.1:3000/mcp
 }
 ```
 
-**Other clients** (Cursor, VS Code, Trae, Windsurf, Codex, ...):
-```json
-{
-  "mcpServers": {
-    "cocos-creator-3x": {
-      "url": "http://localhost:3000/mcp"
-    }
-  }
-}
-```
-
-### SSE (legacy compatibility)
-
-The server also supports legacy SSE transport endpoints:
-
-- `GET /sse`
-- `POST /messages?sessionId=...`
-
-If your client supports modern HTTP MCP, prefer `http://127.0.0.1:3000/mcp`.
-For clear naming, use an MCP server key like `cocos-creator-3x` (this plugin targets Cocos Creator 3.8+).
-
-### Compliance Smoke Test (curl)
-
-Initialize:
-```bash
-curl -i -X POST http://127.0.0.1:3000/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"curl","version":"1.0"}}}'
-```
-
-Use returned `Mcp-Session-Id` for next calls:
-```bash
-curl -i -X POST http://127.0.0.1:3000/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "MCP-Protocol-Version: 2025-06-18" \
-  -H "Mcp-Session-Id: <session-id>" \
-  -d '{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}'
-```
-
-Open SSE stream on same endpoint:
-```bash
-curl -N -i -X GET http://127.0.0.1:3000/mcp \
-  -H "Accept: text/event-stream" \
-  -H "MCP-Protocol-Version: 2025-06-18" \
-  -H "Mcp-Session-Id: <session-id>"
-```
-
-Terminate session:
-```bash
-curl -i -X DELETE http://127.0.0.1:3000/mcp \
-  -H "MCP-Protocol-Version: 2025-06-18" \
-  -H "Mcp-Session-Id: <session-id>"
-```
-
-### Stdio (via proxy)
-
-Only use this if your client does not support HTTP transport:
-
+**Stdio (for clients without HTTP support):**
 ```json
 {
   "mcpServers": {
@@ -115,17 +45,12 @@ Only use this if your client does not support HTTP transport:
 }
 ```
 
-Port (default `3000`) must match the plugin panel setting. Also configurable via `MCP_PORT` env var.
-
 ## Tools Overview
 
-All tools use an `action` parameter to select the operation. Example:
+All tools use an `action` parameter:
 
 ```json
-{
-  "tool": "node_lifecycle",
-  "arguments": { "action": "create", "name": "Player", "nodeType": "2DNode" }
-}
+{ "tool": "node_lifecycle", "arguments": { "action": "create", "name": "Player", "nodeType": "2DNode" } }
 ```
 
 | Category | Tool | Key Actions |
@@ -139,6 +64,7 @@ All tools use an `action` parameter to select the operation. Example:
 | Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update` |
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name` |
 | | `asset_crud` | `create`, `copy`, `move`, `delete`, `save` |
+| UI Builder | `ui_build_from_spec` | declarative UI tree from a UISpec JSON |
 | Project | `project_build` | `run`, `build`, `get_build_settings` |
 | Material | `material_manage` | `create_material`, `create_shader`, `get_info`, `update_texture_meta` |
 | Animation | `manage_animation` | `get_clips`, `play`, `stop`, `pause` |
@@ -147,11 +73,11 @@ All tools use an `action` parameter to select the operation. Example:
 | Batch | `batch_execute` | run multiple tools sequentially in one call |
 | Debug | `debug_console` | `get_logs`, `clear`, `execute_script` |
 
-Full tool inventory with all actions: see [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+Full inventory: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## MCP Resources
 
-Read-only snapshots available via `resources/read`:
+Read-only snapshots via `resources/read`:
 
 | URI | Description |
 |-----|-------------|
@@ -161,87 +87,15 @@ Read-only snapshots available via `resources/read`:
 
 ## When to Use MCP
 
-MCP adds the most value where manual work is repetitive or time-consuming. Use the right tool for each job.
+Best for repetitive or scriptable work: scene audits, bulk property changes, scaffolding repeated structures, writing-and-attaching scripts, building UI from a spec or Figma export.
 
-### High-value use cases
+Better done in-editor: pixel-level layout, dragging assets into array properties, particle/spine setup, first-time exploratory layout.
 
-**Understand the scene without clicking through nodes:**
-```
-"Find all nodes with cc.Button but no cc.AudioSource"
-"Which nodes reference assets from the tournament/ folder?"
-"List all components on node PopupReward"
-```
-
-**Create repeated structures:**
-```
-"Create 8 identical slot items with Sprite, Label, and Button"
-"Scaffold a popup prefab with standard background, title, close button"
-```
-
-**Write script + attach in one step:**
-```
-"Write a RewardController script, attach it to node Popup,
- set duration = 0.3 and maxItems = 5"
-```
-
-**Bulk property changes:**
-```
-"Set fontSize = 28 on all cc.Label nodes in this scene"
-"Disable all Button components inside prefab ShopPanel"
-```
-
-**Audit & integrity checks:**
-```
-"Find assets in ui/ that are no longer referenced"
-"Scan scene for component properties pointing to deleted assets"
-```
-
-### Better done manually in the Editor
-
-| Task | Why |
-|------|-----|
-| Dragging assets into array properties | Visual feedback, drag-drop is faster |
-| Pixel-level position/size tweaks | Requires visual judgment |
-| First-time layout with unknown structure | Need to see it while building |
-| Spine animations, particle effects | Not representable via API |
-
-### Recommended workflow
-
-```
-AI queries scene structure        (MCP)
-    ↓
-AI writes + attaches scripts      (Write file → MCP attach)
-    ↓
-AI sets scalar properties         (MCP set)
-    ↓
-Dev assigns array assets, tweaks  (Manual in Editor)
-    ↓
-AI audits result for missing refs  (MCP scan)
-```
-
-### Design-to-scene pipeline (Figma)
-
-When Figma layers use consistent naming (`btn_`, `lbl_`, `img_`, `panel_`), AI can build the full node hierarchy automatically:
-
-```
-Figma layer names → AI infer Cocos component types
-    ↓
-Asset names → UUID lookup in asset-db
-    ↓
-MCP creates node hierarchy + sets all properties
-    ↓
-Reference image overlay for visual comparison
-    ↓
-Dev does final pixel tweaks
-```
-
-Figma does not need to mirror the Cocos node structure exactly — AI handles the transformation. Consistent **naming conventions** matter more than hierarchy.
-
-Figma works well for UI screens (lobby, shop, popups, HUD). For gameplay elements (characters, particles, tilemaps), use engine-native tools.
+Typical flow: AI queries scene → writes scripts and scaffolds nodes → developer does visual tweaks → AI audits for missing references.
 
 ## Settings
 
-Open the plugin panel (`Extension > Cocos MCP Server`):
+Plugin panel (`Extension > Cocos MCP Server`):
 
 | Setting | Default | Description |
 |---------|---------|-------------|
@@ -256,7 +110,7 @@ npm run watch    # build with file watching
 npm run build    # production build
 ```
 
-Architecture details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
 ## Requirements
 
