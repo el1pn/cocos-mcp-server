@@ -859,8 +859,9 @@ export class MCPServer {
                         instructions: 'You are connected to a running Cocos Creator editor via MCP. ' +
                             'Always inspect the current scene/prefab structure before making modifications, and query real-time editor data instead of guessing. ' +
                             'Always use MCP/editor APIs for scene, node, component, prefab, asset, project, and editor operations. ' +
-                            'Do not directly edit serialized Cocos files (.scene, .prefab, .meta, and related data files). ' +
-                            'The only files allowed for direct text editing are TypeScript/JavaScript source files (.ts, .js). ' +
+                            'Do not directly edit serialized Cocos files (.scene, .prefab, .meta, and related data files) for structural changes (adding/removing nodes or components, modifying __id__/UUID/array references); always use MCP/editor APIs for these. ' +
+                            'Exception: bulk find-replace of a single identifier value (e.g., renaming a __type__ CID or an enum string) is allowed via direct text edit when no MCP tool covers it, provided no JSON structure is changed and the working tree is committed beforehand. ' +
+                            'TypeScript/JavaScript source files (.ts, .js) can always be edited directly. ' +
                             'All tools use an "action" parameter to specify operations. ' +
                             'After creating or restructuring UI nodes, apply responsive defaults (anchors, widget constraints, and layout), and prefer ui_apply_responsive_defaults immediately for consistency. ' +
                             'Prefer reusable prefab edits at the prefab asset source level; use scene-local overrides only when necessary. ' +
