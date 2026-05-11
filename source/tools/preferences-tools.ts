@@ -33,6 +33,14 @@ export class PreferencesTools implements ToolExecutor {
                             description: 'Configuration path (action: query, set)'
                         },
                         value: {
+                            oneOf: [
+                                { type: 'string' },
+                                { type: 'number' },
+                                { type: 'boolean' },
+                                { type: 'object' },
+                                { type: 'array' },
+                                { type: 'null' }
+                            ],
                             description: 'Configuration value (action: set)'
                         },
                         type: {

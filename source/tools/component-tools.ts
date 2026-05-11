@@ -98,6 +98,14 @@ export class ComponentTools implements ToolExecutor {
                         },
 
                         value: {
+                            oneOf: [
+                                { type: 'string' },
+                                { type: 'number' },
+                                { type: 'boolean' },
+                                { type: 'object' },
+                                { type: 'array' },
+                                { type: 'null' }
+                            ],
                             description: 'Property value - Use the corresponding data format based on propertyType:\n\n' +
                                 '📝 Basic Data Types:\n' +
                                 '• string: "Hello World" (text string)\n' +

@@ -189,6 +189,14 @@ export class NodeTools implements ToolExecutor {
                             description: "Property name (e.g., active, name, layer). Required for 'set_property' action."
                         },
                         value: {
+                            oneOf: [
+                                { type: 'string' },
+                                { type: 'number' },
+                                { type: 'boolean' },
+                                { type: 'object' },
+                                { type: 'array' },
+                                { type: 'null' }
+                            ],
                             description: "Property value. Required for 'set_property' action."
                         }
                     },
