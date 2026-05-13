@@ -38,6 +38,8 @@ export interface UISpacing {
     y?: number;
 }
 
+export type UIButtonTransition = 'NONE' | 'COLOR' | 'SPRITE' | 'SCALE';
+
 export interface UISemanticProps {
     text?: string;
     fontSize?: number;
@@ -47,6 +49,21 @@ export interface UISemanticProps {
     placeholder?: string;
     onClick?: string;
     layoutType?: 'NONE' | 'HORIZONTAL' | 'VERTICAL' | 'GRID';
+    // Button component (cc.Button) properties
+    normalColor?: UIColor;
+    pressedColor?: UIColor;
+    hoverColor?: UIColor;
+    disabledColor?: UIColor;
+    transition?: UIButtonTransition;
+    duration?: number;
+    zoomScale?: number;
+    normalSprite?: UIAssetRef;
+    pressedSprite?: UIAssetRef;
+    hoverSprite?: UIAssetRef;
+    disabledSprite?: UIAssetRef;
+    // Label child alignment (only used when type=Button)
+    labelAlignHorizontal?: 'LEFT' | 'CENTER' | 'RIGHT';
+    labelAlignVertical?: 'TOP' | 'CENTER' | 'BOTTOM';
 }
 
 export type UIScrollLayout = 'vertical' | 'horizontal' | 'grid';
@@ -198,6 +215,59 @@ export const UI_SPEC_JSON_SCHEMA: JSONSchemaProperty = {
                 placeholder: { type: 'string' },
                 onClick: { type: 'string', description: 'Handler method name on attached script.' },
                 layoutType: { type: 'string', enum: ['NONE', 'HORIZONTAL', 'VERTICAL', 'GRID'] },
+                normalColor: {
+                    type: 'object',
+                    description: 'Button normal state color (cc.Button.normalColor)',
+                    properties: {
+                        r: { type: 'number', minimum: 0, maximum: 255 },
+                        g: { type: 'number', minimum: 0, maximum: 255 },
+                        b: { type: 'number', minimum: 0, maximum: 255 },
+                        a: { type: 'number', minimum: 0, maximum: 255 },
+                    },
+                    required: ['r', 'g', 'b'],
+                },
+                pressedColor: {
+                    type: 'object',
+                    description: 'Button pressed state color (cc.Button.pressedColor)',
+                    properties: {
+                        r: { type: 'number', minimum: 0, maximum: 255 },
+                        g: { type: 'number', minimum: 0, maximum: 255 },
+                        b: { type: 'number', minimum: 0, maximum: 255 },
+                        a: { type: 'number', minimum: 0, maximum: 255 },
+                    },
+                    required: ['r', 'g', 'b'],
+                },
+                hoverColor: {
+                    type: 'object',
+                    description: 'Button hover state color (cc.Button.hoverColor)',
+                    properties: {
+                        r: { type: 'number', minimum: 0, maximum: 255 },
+                        g: { type: 'number', minimum: 0, maximum: 255 },
+                        b: { type: 'number', minimum: 0, maximum: 255 },
+                        a: { type: 'number', minimum: 0, maximum: 255 },
+                    },
+                    required: ['r', 'g', 'b'],
+                },
+                disabledColor: {
+                    type: 'object',
+                    description: 'Button disabled state color (cc.Button.disabledColor)',
+                    properties: {
+                        r: { type: 'number', minimum: 0, maximum: 255 },
+                        g: { type: 'number', minimum: 0, maximum: 255 },
+                        b: { type: 'number', minimum: 0, maximum: 255 },
+                        a: { type: 'number', minimum: 0, maximum: 255 },
+                    },
+                    required: ['r', 'g', 'b'],
+                },
+                transition: { type: 'string', enum: ['NONE', 'COLOR', 'SPRITE', 'SCALE'], description: 'Button transition mode (cc.Button.transition). Default: SCALE.' },
+                duration: { type: 'number', description: 'Button transition duration in seconds (cc.Button.duration)' },
+                zoomScale: { type: 'number', description: 'Button zoom scale for SCALE transition (cc.Button.zoomScale)' },
+                normalSprite: { type: 'string', description: 'Button normal sprite asset path or UUID (cc.Button.normalSprite)' },
+                pressedSprite: { type: 'string', description: 'Button pressed sprite asset path or UUID (cc.Button.pressedSprite)' },
+                hoverSprite: { type: 'string', description: 'Button hover sprite asset path or UUID (cc.Button.hoverSprite)' },
+                disabledSprite: { type: 'string', description: 'Button disabled sprite asset path or UUID (cc.Button.disabledSprite)' },
+                labelAlignHorizontal: { type: 'string', enum: ['LEFT', 'CENTER', 'RIGHT'], description: 'Label child horizontal alignment when type=Button (cc.Label.horizontalAlign). Default: CENTER.' },
+                labelAlignVertical: { type: 'string', enum: ['TOP', 'CENTER', 'BOTTOM'], description: 'Label child vertical alignment when type=Button (cc.Label.verticalAlign). Default: CENTER.' },
             },
             additionalProperties: true,
         },

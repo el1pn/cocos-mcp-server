@@ -383,6 +383,11 @@ export class UIBuilderTools implements ToolExecutor {
         if (type !== 'Panel' && type !== 'Image' && type !== 'Button') {
             return;
         }
+        // For Button type, always set Sprite type to SLICED for proper 9-slice scaling
+        // (engine default is SIMPLE, but editor template uses SLICED for buttons)
+        if (type === 'Button') {
+            await this.setProp(uuid, 'cc.Sprite', 'type', 'integer', 1, ctx); // SLICED
+        }
         const background = spec.props?.background;
         if (!background) {
             return;
@@ -417,6 +422,23 @@ export class UIBuilderTools implements ToolExecutor {
                 ctx.warnings.push(`${spec.name} label add ${componentType}: ${r.error ?? 'unknown error'}`);
             }
         }
+
+        // Add cc.Widget to stretch the label to fill the entire button area
+        const widgetResult = await this.componentTools.execute('component_manage', {
+            action: 'add',
+            nodeUuid: labelUuid,
+            componentType: 'cc.Widget',
+        });
+        if (widgetResult.success) {
+            await this.setProp(labelUuid, 'cc.Widget', 'isAlignTop', 'boolean', true, ctx);
+            await this.setProp(labelUuid, 'cc.Widget', 'isAlignBottom', 'boolean', true, ctx);
+            await this.setProp(labelUuid, 'cc.Widget', 'isAlignLeft', 'boolean', true, ctx);
+            await this.setProp(labelUuid, 'cc.Widget', 'isAlignRight', 'boolean', true, ctx);
+            await this.setProp(labelUuid, 'cc.Widget', 'alignMode', 'integer', 2, ctx); // ON_WINDOW_RESIZE
+        } else {
+            ctx.warnings.push(`${spec.name} label add cc.Widget: ${widgetResult.error ?? 'unknown error'}`);
+        }
+
         if (props.text !== undefined) {
             await this.setProp(labelUuid, 'cc.Label', 'string', 'string', String(props.text), ctx);
         }
@@ -425,6 +447,21 @@ export class UIBuilderTools implements ToolExecutor {
         }
         if (props.color) {
             await this.setProp(labelUuid, 'cc.Label', 'color', 'color', this.normalizeColor(props.color), ctx);
+        }
+        // Label alignment (Button type only)
+        if (props.labelAlignHorizontal) {
+            const hMap: Record<string, number> = { LEFT: 0, CENTER: 1, RIGHT: 2 };
+            const hVal = hMap[props.labelAlignHorizontal];
+            if (hVal !== undefined) {
+                await this.setProp(labelUuid, 'cc.Label', 'horizontalAlign', 'integer', hVal, ctx);
+            }
+        }
+        if (props.labelAlignVertical) {
+            const vMap: Record<string, number> = { TOP: 0, CENTER: 1, BOTTOM: 2 };
+            const vVal = vMap[props.labelAlignVertical];
+            if (vVal !== undefined) {
+                await this.setProp(labelUuid, 'cc.Label', 'verticalAlign', 'integer', vVal, ctx);
+            }
         }
     }
 
@@ -442,8 +479,49 @@ export class UIBuilderTools implements ToolExecutor {
             await this.setProp(uuid, 'cc.Label', 'color', 'color', this.normalizeColor(props.color), ctx);
         }
 
-        if ((type === 'Panel' || type === 'Image' || type === 'Button') && props.color) {
+        // Panel/Image: apply color to cc.Sprite only (not Button — Button color goes to Label child)
+        if ((type === 'Panel' || type === 'Image') && props.color) {
             await this.setProp(uuid, 'cc.Sprite', 'color', 'color', this.normalizeColor(props.color), ctx);
+        }
+
+        // Button component (cc.Button) properties
+        if (type === 'Button') {
+            const tMap: Record<string, number> = { NONE: 0, COLOR: 1, SPRITE: 2, SCALE: 3 };
+            // Default to SCALE like the Cocos Creator editor template
+            const tVal = props.transition ? tMap[props.transition] : tMap.SCALE;
+            if (tVal !== undefined) {
+                await this.setProp(uuid, 'cc.Button', 'transition', 'integer', tVal, ctx);
+            }
+            if (props.normalColor) {
+                await this.setProp(uuid, 'cc.Button', 'normalColor', 'color', this.normalizeColor(props.normalColor), ctx);
+            }
+            if (props.pressedColor) {
+                await this.setProp(uuid, 'cc.Button', 'pressedColor', 'color', this.normalizeColor(props.pressedColor), ctx);
+            }
+            if (props.hoverColor) {
+                await this.setProp(uuid, 'cc.Button', 'hoverColor', 'color', this.normalizeColor(props.hoverColor), ctx);
+            }
+            if (props.disabledColor) {
+                await this.setProp(uuid, 'cc.Button', 'disabledColor', 'color', this.normalizeColor(props.disabledColor), ctx);
+            }
+            if (props.duration !== undefined) {
+                await this.setProp(uuid, 'cc.Button', 'duration', 'number', Number(props.duration), ctx);
+            }
+            if (props.zoomScale !== undefined) {
+                await this.setProp(uuid, 'cc.Button', 'zoomScale', 'number', Number(props.zoomScale), ctx);
+            }
+            if (props.normalSprite) {
+                await this.setProp(uuid, 'cc.Button', 'normalSprite', 'spriteFrame', await this.resolveAssetUuid(props.normalSprite), ctx);
+            }
+            if (props.pressedSprite) {
+                await this.setProp(uuid, 'cc.Button', 'pressedSprite', 'spriteFrame', await this.resolveAssetUuid(props.pressedSprite), ctx);
+            }
+            if (props.hoverSprite) {
+                await this.setProp(uuid, 'cc.Button', 'hoverSprite', 'spriteFrame', await this.resolveAssetUuid(props.hoverSprite), ctx);
+            }
+            if (props.disabledSprite) {
+                await this.setProp(uuid, 'cc.Button', 'disabledSprite', 'spriteFrame', await this.resolveAssetUuid(props.disabledSprite), ctx);
+            }
         }
 
         if (type === 'Input' && props.placeholder !== undefined) {
