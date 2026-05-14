@@ -40,10 +40,10 @@ export async function resolveSpriteFrameUuid(uuid: string): Promise<{ uuid: stri
             return { uuid, converted: false };
         }
 
-        // Find the first SpriteFrame sub-asset
+        // Find the SpriteFrame sub-asset (not the base Texture2D sub-asset)
         for (const key of Object.keys(subMetas)) {
             const sub = subMetas[key];
-            if (sub && sub.uuid && (sub.importer === 'sprite-frame' || key === '6c48a')) {
+            if (sub && sub.uuid && sub.importer === 'sprite-frame') {
                 return { uuid: sub.uuid, converted: true };
             }
         }

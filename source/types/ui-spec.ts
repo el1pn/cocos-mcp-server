@@ -64,6 +64,10 @@ export interface UISemanticProps {
     // Label child alignment (only used when type=Button)
     labelAlignHorizontal?: 'LEFT' | 'CENTER' | 'RIGHT';
     labelAlignVertical?: 'TOP' | 'CENTER' | 'BOTTOM';
+    // EditBox (Input) properties
+    inputMode?: string | number;
+    maxLength?: number;
+    returnType?: string | number;
 }
 
 export type UIScrollLayout = 'vertical' | 'horizontal' | 'grid';

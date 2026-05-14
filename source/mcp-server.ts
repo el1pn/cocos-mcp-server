@@ -429,15 +429,27 @@ export class MCPServer {
         if (!sessionId) {
             if (required) {
                 res.writeHead(400);
-                res.end(JSON.stringify({ error: `Missing required header: ${MCPServer.SESSION_HEADER}` }));
+                res.end(JSON.stringify({
+                    jsonrpc: '2.0',
+                    error: { code: -32600, message: `Missing required header: ${MCPServer.SESSION_HEADER}` }
+                }));
             }
             return null;
         }
 
         const session = this.clients.get(sessionId);
         if (!session) {
-            res.writeHead(404);
-            res.end(JSON.stringify({ error: `Session not found: ${sessionId}` }));
+            if (required) {
+                res.writeHead(404);
+                res.end(JSON.stringify({
+                    jsonrpc: '2.0',
+                    error: {
+                        code: -32001,
+                        message: `Session not found: ${sessionId}`,
+                        data: { reinitialize: true }
+                    }
+                }));
+            }
             return null;
         }
 
@@ -657,7 +669,7 @@ export class MCPServer {
                 const isInitialize = isRequest && message.method === 'initialize';
                 if (isInitialize) {
                     const existingSessionId = this.getHeader(req, MCPServer.SESSION_HEADER);
-                    if (existingSessionId) {
+                    if (existingSessionId && this.clients.has(existingSessionId)) {
                         res.writeHead(400);
                         res.end(JSON.stringify({
                             jsonrpc: '2.0',
@@ -725,8 +737,32 @@ export class MCPServer {
                     return;
                 }
 
-                const session = this.validateSessionHeader(req, res, true);
-                if (!session) return;
+                let session = this.validateSessionHeader(req, res, false);
+                if (!session) {
+                    const staleSessionId = this.getHeader(req, MCPServer.SESSION_HEADER);
+                    if (staleSessionId) {
+                        // Auto-recover: create a new session for stale/unknown session IDs
+                        // so the client doesn't need to manually re-initialize after server restart.
+                        // Protocol version will be negotiated from the request header.
+                        session = {
+                            id: staleSessionId,
+                            lastActivity: new Date(),
+                            userAgent: req.headers['user-agent'],
+                            protocolVersion: undefined as any,
+                            initialized: true
+                        };
+                        this.clients.set(staleSessionId, session);
+                        logger.info(`Auto-recovered stale session: ${staleSessionId}`);
+                    } else {
+                        res.writeHead(400);
+                        res.end(JSON.stringify({
+                            jsonrpc: '2.0',
+                            id: message?.id ?? null,
+                            error: { code: -32600, message: `Missing required header: ${MCPServer.SESSION_HEADER}` }
+                        }));
+                        return;
+                    }
+                }
                 if (!session.initialized) {
                     res.writeHead(400);
                     res.end(JSON.stringify({

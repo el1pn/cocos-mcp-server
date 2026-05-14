@@ -197,6 +197,10 @@ export class UIBuilderTools implements ToolExecutor {
             await this.buildButtonLabelChild(uuid, spec, ctx);
         }
 
+        if (spec.type === 'Input') {
+            await this.buildEditboxChildren(uuid, spec, ctx);
+        }
+
         if (spec.active === false) {
             const r = await this.nodeTools.execute('node_transform', {
                 action: 'set_property',
@@ -345,7 +349,7 @@ export class UIBuilderTools implements ToolExecutor {
             case 'Button':
                 return ['cc.UITransform', 'cc.Sprite', 'cc.Button'];
             case 'Input':
-                return ['cc.UITransform', 'cc.EditBox'];
+                return ['cc.UITransform', 'cc.Sprite', 'cc.EditBox'];
             case 'ScrollView':
                 return ['cc.UITransform', 'cc.ScrollView'];
             case 'List':
@@ -380,19 +384,38 @@ export class UIBuilderTools implements ToolExecutor {
 
     private async applySpriteFrameDefault(uuid: string, spec: UISpec, ctx: BuildContext): Promise<void> {
         const type = spec.type;
-        if (type !== 'Panel' && type !== 'Image' && type !== 'Button') {
+        if (type !== 'Panel' && type !== 'Image' && type !== 'Button' && type !== 'Input') {
             return;
         }
-        // For Button type, always set Sprite type to SLICED for proper 9-slice scaling
-        // (engine default is SIMPLE, but editor template uses SLICED for buttons)
-        if (type === 'Button') {
+        // For Button/Input type, always set Sprite type to SLICED for proper 9-slice scaling
+        if (type === 'Button' || type === 'Input') {
             await this.setProp(uuid, 'cc.Sprite', 'type', 'integer', 1, ctx); // SLICED
         }
         const background = spec.props?.background;
-        if (!background) {
+        if (background) {
+            await this.setProp(uuid, 'cc.Sprite', 'spriteFrame', 'spriteFrame', await this.resolveAssetUuid(background), ctx);
             return;
         }
-        await this.setProp(uuid, 'cc.Sprite', 'spriteFrame', 'spriteFrame', await this.resolveAssetUuid(background), ctx);
+        // If no background provided for Button type, set the internal default button sprites
+        if (type === 'Button') {
+            const normalUrl = 'db://internal/default_ui/default_btn_normal.png';
+            const pressedUrl = 'db://internal/default_ui/default_btn_pressed.png';
+            const disabledUrl = 'db://internal/default_ui/default_btn_disabled.png';
+            const normalUuid = await this.resolveAssetUuid(normalUrl);
+            await this.setProp(uuid, 'cc.Sprite', 'spriteFrame', 'spriteFrame', normalUuid, ctx);
+            await this.setProp(uuid, 'cc.Button', 'normalSprite', 'spriteFrame', normalUuid, ctx);
+            await this.setProp(uuid, 'cc.Button', 'hoverSprite', 'spriteFrame', normalUuid, ctx);
+            const pressedUuid = await this.resolveAssetUuid(pressedUrl);
+            await this.setProp(uuid, 'cc.Button', 'pressedSprite', 'spriteFrame', pressedUuid, ctx);
+            const disabledUuid = await this.resolveAssetUuid(disabledUrl);
+            await this.setProp(uuid, 'cc.Button', 'disabledSprite', 'spriteFrame', disabledUuid, ctx);
+        }
+        // If no background provided for Input type, set the default editbox background sprite
+        if (type === 'Input') {
+            const editboxUuid = await this.resolveAssetUuid('db://internal/default_ui/default_editbox_bg.png');
+            await this.setProp(uuid, 'cc.Sprite', 'spriteFrame', 'spriteFrame', editboxUuid, ctx);
+            await this.setProp(uuid, 'cc.EditBox', 'backgroundImage', 'spriteFrame', editboxUuid, ctx);
+        }
     }
 
     private async buildButtonLabelChild(buttonUuid: string, spec: UISpec, ctx: BuildContext): Promise<void> {
@@ -423,21 +446,8 @@ export class UIBuilderTools implements ToolExecutor {
             }
         }
 
-        // Add cc.Widget to stretch the label to fill the entire button area
-        const widgetResult = await this.componentTools.execute('component_manage', {
-            action: 'add',
-            nodeUuid: labelUuid,
-            componentType: 'cc.Widget',
-        });
-        if (widgetResult.success) {
-            await this.setProp(labelUuid, 'cc.Widget', 'isAlignTop', 'boolean', true, ctx);
-            await this.setProp(labelUuid, 'cc.Widget', 'isAlignBottom', 'boolean', true, ctx);
-            await this.setProp(labelUuid, 'cc.Widget', 'isAlignLeft', 'boolean', true, ctx);
-            await this.setProp(labelUuid, 'cc.Widget', 'isAlignRight', 'boolean', true, ctx);
-            await this.setProp(labelUuid, 'cc.Widget', 'alignMode', 'integer', 2, ctx); // ON_WINDOW_RESIZE
-        } else {
-            ctx.warnings.push(`${spec.name} label add cc.Widget: ${widgetResult.error ?? 'unknown error'}`);
-        }
+        // Set overflow to CLAMP first so text changes don't auto-resize the node
+        await this.setProp(labelUuid, 'cc.Label', 'overflow', 'integer', 1, ctx); // CLAMP
 
         if (props.text !== undefined) {
             await this.setProp(labelUuid, 'cc.Label', 'string', 'string', String(props.text), ctx);
@@ -463,6 +473,91 @@ export class UIBuilderTools implements ToolExecutor {
                 await this.setProp(labelUuid, 'cc.Label', 'verticalAlign', 'integer', vVal, ctx);
             }
         }
+
+        // Size and position the label to fill the button (AFTER text, so size overrides text)
+        const buttonSize = spec.size;
+        if (buttonSize && buttonSize.length === 2) {
+            await this.setProp(labelUuid, 'cc.UITransform', 'contentSize', 'size',
+                { width: buttonSize[0], height: buttonSize[1] }, ctx);
+        }
+        const posResult = await this.nodeTools.execute('node_transform', {
+            action: 'set_transform',
+            uuid: labelUuid,
+            position: { x: 0, y: 0, z: 0 },
+        });
+        if (!posResult.success) {
+            ctx.warnings.push(`${spec.name} label position: ${posResult.error ?? 'unknown error'}`);
+        }
+    }
+
+    private async buildEditboxChildren(editboxUuid: string, spec: UISpec, ctx: BuildContext): Promise<void> {
+        const props = spec.props ?? {};
+        const size = spec.size;
+        const w = size && size.length === 2 ? size[0] : 200;
+        const h = size && size.length === 2 ? size[1] : 40;
+        const childW = w - 2;
+        const childH = h;
+        const fontSize = props.fontSize !== undefined ? Number(props.fontSize) : 20;
+
+        // Create TEXT_LABEL child (inactive by default, shown when typing)
+        const createTextLabel = await this.nodeTools.execute('node_lifecycle', {
+            action: 'create',
+            name: 'TEXT_LABEL',
+            parentUuid: editboxUuid,
+        });
+        if (!createTextLabel.success || !createTextLabel.data?.uuid) {
+            ctx.warnings.push(`${spec.name} TEXT_LABEL: ${createTextLabel.error ?? 'unknown error'}`);
+            return;
+        }
+        const textLabelNodeUuid: string = createTextLabel.data.uuid;
+        ctx.createdNodeUuids.push(textLabelNodeUuid);
+
+        for (const ct of ['cc.UITransform', 'cc.Label']) {
+            await this.componentTools.execute('component_manage', { action: 'add', nodeUuid: textLabelNodeUuid, componentType: ct });
+        }
+        await this.setProp(textLabelNodeUuid, 'cc.UITransform', 'contentSize', 'size', { width: childW, height: childH }, ctx);
+        await this.setProp(textLabelNodeUuid, 'cc.UITransform', 'anchorPoint', 'vec2', { x: 0, y: 1 }, ctx);
+        await this.setProp(textLabelNodeUuid, 'cc.Label', 'overflow', 'integer', 1, ctx); // CLAMP
+        await this.setProp(textLabelNodeUuid, 'cc.Label', 'horizontalAlign', 'integer', 0, ctx); // LEFT
+        await this.setProp(textLabelNodeUuid, 'cc.Label', 'verticalAlign', 'integer', 1, ctx); // CENTER
+        await this.setProp(textLabelNodeUuid, 'cc.Label', 'fontSize', 'number', fontSize, ctx);
+        await this.setProp(textLabelNodeUuid, 'cc.Label', 'enableWrapText', 'boolean', false, ctx);
+        // Set textLabel inactive until user starts typing
+        await this.nodeTools.execute('node_transform', { action: 'set_property', uuid: textLabelNodeUuid, property: 'active', value: false });
+
+        // Create PLACEHOLDER_LABEL child
+        const createPHLabel = await this.nodeTools.execute('node_lifecycle', {
+            action: 'create',
+            name: 'PLACEHOLDER_LABEL',
+            parentUuid: editboxUuid,
+        });
+        if (!createPHLabel.success || !createPHLabel.data?.uuid) {
+            ctx.warnings.push(`${spec.name} PLACEHOLDER_LABEL: ${createPHLabel.error ?? 'unknown error'}`);
+            return;
+        }
+        const phLabelNodeUuid: string = createPHLabel.data.uuid;
+        ctx.createdNodeUuids.push(phLabelNodeUuid);
+
+        for (const ct of ['cc.UITransform', 'cc.Label']) {
+            await this.componentTools.execute('component_manage', { action: 'add', nodeUuid: phLabelNodeUuid, componentType: ct });
+        }
+        await this.setProp(phLabelNodeUuid, 'cc.UITransform', 'contentSize', 'size', { width: childW, height: childH }, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.UITransform', 'anchorPoint', 'vec2', { x: 0, y: 1 }, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'overflow', 'integer', 1, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'horizontalAlign', 'integer', 0, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'verticalAlign', 'integer', 1, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'fontSize', 'number', fontSize, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'enableWrapText', 'boolean', false, ctx);
+        await this.setProp(phLabelNodeUuid, 'cc.Label', 'color', 'color', { r: 187, g: 187, b: 187, a: 255 }, ctx);
+        if (props.placeholder !== undefined) {
+            await this.setProp(phLabelNodeUuid, 'cc.Label', 'string', 'string', String(props.placeholder), ctx);
+        }
+
+        // Link EditBox references to the Label components
+        const textLabelCompLink = this.setProp(editboxUuid, 'cc.EditBox', 'textLabel', 'component', textLabelNodeUuid, ctx);
+        const phLabelCompLink = this.setProp(editboxUuid, 'cc.EditBox', 'placeholderLabel', 'component', phLabelNodeUuid, ctx);
+        await textLabelCompLink;
+        await phLabelCompLink;
     }
 
     private async applySemanticProps(uuid: string, spec: UISpec, ctx: BuildContext): Promise<void> {
@@ -529,6 +624,23 @@ export class UIBuilderTools implements ToolExecutor {
         }
         if (type === 'Input' && props.text !== undefined) {
             await this.setProp(uuid, 'cc.EditBox', 'string', 'string', String(props.text), ctx);
+        }
+        if (type === 'Input' && props.inputMode !== undefined) {
+            const imMap: Record<string, number> = { ANY: 0, EMAIL_ADDR: 1, NUMERIC: 2, PHONE_NUMBER: 3, URL: 4, DECIMAL: 5, SINGLE_LINE: 6 };
+            const imVal = typeof props.inputMode === 'number' ? props.inputMode : imMap[String(props.inputMode)];
+            if (imVal !== undefined) {
+                await this.setProp(uuid, 'cc.EditBox', 'inputMode', 'integer', imVal, ctx);
+            }
+        }
+        if (type === 'Input' && props.maxLength !== undefined) {
+            await this.setProp(uuid, 'cc.EditBox', 'maxLength', 'number', Number(props.maxLength), ctx);
+        }
+        if (type === 'Input' && props.returnType !== undefined) {
+            const rtMap: Record<string, number> = { DEFAULT: 0, DONE: 1, SEND: 2, SEARCH: 3, GO: 4, NEXT: 5 };
+            const rtVal = typeof props.returnType === 'number' ? props.returnType : rtMap[String(props.returnType)];
+            if (rtVal !== undefined) {
+                await this.setProp(uuid, 'cc.EditBox', 'returnType', 'integer', rtVal, ctx);
+            }
         }
 
         if (type === 'List' && props.layoutType) {
