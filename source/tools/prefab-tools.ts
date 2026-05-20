@@ -8,7 +8,7 @@ export class PrefabTools implements ToolExecutor {
         return [
             {
                 name: 'prefab_lifecycle',
-                description: 'Manage prefab lifecycle: create, instantiate, update, or duplicate prefabs. Use the "action" parameter to select the operation.',
+                description: 'Manage prefab lifecycle: create, instantiate, update, or duplicate prefabs. Use the "action" parameter to select the operation. NOTE: To open a prefab in prefab-edit mode in the editor, use scene_management with action "open" and the .prefab path — not this tool.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -64,7 +64,7 @@ export class PrefabTools implements ToolExecutor {
             },
             {
                 name: 'prefab_query',
-                description: 'Query prefab information: get a list of prefabs, load a prefab, get detailed info, or validate a prefab file. Use the "action" parameter to select the operation.',
+                description: 'Query prefab information: get a list of prefabs, load a prefab, get detailed info, or validate a prefab file. Use the "action" parameter to select the operation. NOTE: "load" only returns metadata — to open a prefab for editing use scene_management with action "open".',
                 inputSchema: {
                     type: 'object',
                     properties: {

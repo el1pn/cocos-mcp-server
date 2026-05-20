@@ -8,22 +8,22 @@ export class NodeTools implements ToolExecutor {
         return [
             {
                 name: 'node_lifecycle',
-                description: 'Manage node lifecycle: create, delete, duplicate, or move nodes in the scene. Available actions: create, delete, duplicate, move.',
+                description: 'Manage node lifecycle: create, delete, duplicate, move, or rename nodes in the scene. Available actions: create, delete, duplicate, move, rename.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
-                            enum: ['create', 'delete', 'duplicate', 'move'],
+                            enum: ['create', 'delete', 'duplicate', 'move', 'rename'],
                             description: 'The lifecycle action to perform'
                         },
                         name: {
                             type: 'string',
-                            description: "Node name. Required for 'create' action."
+                            description: "Node name. Required for 'create' and 'rename' actions."
                         },
                         uuid: {
                             type: 'string',
-                            description: "Node UUID. Required for 'delete' and 'duplicate' actions."
+                            description: "Node UUID. Required for 'delete', 'duplicate', and 'rename' actions."
                         },
                         parentUuid: {
                             type: 'string',
@@ -219,6 +219,8 @@ export class NodeTools implements ToolExecutor {
                         return await this.duplicateNode(args.uuid, args.includeChildren);
                     case 'move':
                         return await this.moveNode(args.nodeUuid, args.newParentUuid, args.siblingIndex);
+                    case 'rename':
+                        return await this.renameNode(args.uuid, args.name);
                     default:
                         throw new Error(`Unknown action for node_lifecycle: ${action}`);
                 }
@@ -921,6 +923,22 @@ export class NodeTools implements ToolExecutor {
                     success: true,
                     message: 'Node moved successfully'
                 });
+            }).catch((err: Error) => {
+                resolve({ success: false, error: err.message });
+            });
+        });
+    }
+
+    private async renameNode(uuid: string, name: string): Promise<ToolResponse> {
+        if (!uuid) return { success: false, error: 'uuid is required' };
+        if (!name) return { success: false, error: 'name is required' };
+        return new Promise((resolve) => {
+            Editor.Message.request('scene', 'set-property', {
+                uuid,
+                path: 'name',
+                dump: { type: 'String', value: name }
+            }).then(() => {
+                resolve({ success: true, message: `Node renamed to "${name}"` });
             }).catch((err: Error) => {
                 resolve({ success: false, error: err.message });
             });

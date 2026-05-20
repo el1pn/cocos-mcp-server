@@ -553,11 +553,10 @@ export class UIBuilderTools implements ToolExecutor {
             await this.setProp(phLabelNodeUuid, 'cc.Label', 'string', 'string', String(props.placeholder), ctx);
         }
 
-        // Link EditBox references to the Label components
-        const textLabelCompLink = this.setProp(editboxUuid, 'cc.EditBox', 'textLabel', 'component', textLabelNodeUuid, ctx);
-        const phLabelCompLink = this.setProp(editboxUuid, 'cc.EditBox', 'placeholderLabel', 'component', phLabelNodeUuid, ctx);
-        await textLabelCompLink;
-        await phLabelCompLink;
+        await Promise.all([
+            this.setProp(editboxUuid, 'cc.EditBox', 'textLabel', 'component', textLabelNodeUuid, ctx),
+            this.setProp(editboxUuid, 'cc.EditBox', 'placeholderLabel', 'component', phLabelNodeUuid, ctx),
+        ]);
     }
 
     private async applySemanticProps(uuid: string, spec: UISpec, ctx: BuildContext): Promise<void> {

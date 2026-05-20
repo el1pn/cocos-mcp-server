@@ -5,7 +5,7 @@ export class SceneTools implements ToolExecutor {
         return [
             {
                 name: 'scene_management',
-                description: 'Manage scenes in the Cocos Creator project. Available actions: get_current (get current scene info), get_list (list all scenes), open (open a scene by path), save (save current scene), save_as (save scene as new file), create (create a new scene), close (close current scene), get_hierarchy (get scene node hierarchy).',
+                description: 'Manage scenes in the Cocos Creator project. Available actions: get_current (get current scene info), get_list (list all scenes), open (open a .scene or .prefab file by path — also works for opening prefabs in prefab-edit mode), save (save current scene/prefab), save_as (save scene as new file), create (create a new scene), close (close current scene), get_hierarchy (get scene node hierarchy).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -16,7 +16,7 @@ export class SceneTools implements ToolExecutor {
                         },
                         scenePath: {
                             type: 'string',
-                            description: 'The scene file path (required for action: "open")'
+                            description: 'Path to open (required for action: "open"). Supports both .scene and .prefab files — use this to open a prefab in prefab-edit mode.'
                         },
                         sceneName: {
                             type: 'string',
@@ -363,7 +363,8 @@ export class SceneTools implements ToolExecutor {
             // Try using Editor API to query scene node tree first
             Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
                 if (tree) {
-                    const hierarchy = this.buildHierarchy(tree, includeComponents, maxDepth, maxChildrenPerLevel, 0);
+                    const unwrapped = this.unwrapPrefabHierarchy(tree);
+                    const hierarchy = this.buildHierarchy(unwrapped, includeComponents, maxDepth, maxChildrenPerLevel, 0);
                     resolve({
                         success: true,
                         data: hierarchy,
@@ -387,6 +388,13 @@ export class SceneTools implements ToolExecutor {
                 });
             });
         });
+    }
+
+    private unwrapPrefabHierarchy(tree: any): any {
+        if (tree?.children?.length === 1 && tree.children[0]?.name === 'should_hide_in_hierarchy') {
+            return { ...tree, children: tree.children[0].children || [] };
+        }
+        return tree;
     }
 
     private buildHierarchy(
