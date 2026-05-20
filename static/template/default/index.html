@@ -1,10 +1,57 @@
 <div class="mcp-server-panel">
-    <header>
-        <h2 id="panelTitle">MCP Server</h2>
-    </header>
-    
-    <!-- Vue3 app mount point -->
     <div id="app">
-        <mcp-server-app></mcp-server-app>
+        <div class="tab-content">
+            <section class="server-status">
+                <h3 id="txt-server-status"></h3>
+                <ui-prop>
+                    <ui-label slot="label" id="txt-status-label"></ui-label>
+                    <ui-label slot="content" id="el-status-value" class="status-value"></ui-label>
+                </ui-prop>
+                <ui-prop id="el-prop-connections" style="display:none">
+                    <ui-label slot="label" id="txt-connections-label"></ui-label>
+                    <ui-label slot="content" id="el-connected-clients">0</ui-label>
+                </ui-prop>
+            </section>
+
+            <section class="server-controls">
+                <ui-button id="btn-toggle" class="primary"></ui-button>
+            </section>
+
+            <section class="server-settings">
+                <h3 id="txt-settings"></h3>
+                <ui-prop>
+                    <ui-label slot="label" id="txt-port"></ui-label>
+                    <ui-num-input slot="content" id="input-port" min="1024" max="65535" step="1"></ui-num-input>
+                </ui-prop>
+                <ui-prop>
+                    <ui-label slot="label" id="txt-auto-start"></ui-label>
+                    <ui-checkbox slot="content" id="input-auto-start"></ui-checkbox>
+                </ui-prop>
+                <ui-prop>
+                    <ui-label slot="label" id="txt-debug-log"></ui-label>
+                    <ui-checkbox slot="content" id="input-debug-log"></ui-checkbox>
+                </ui-prop>
+                <ui-prop>
+                    <ui-label slot="label" id="txt-max-connections"></ui-label>
+                    <ui-num-input slot="content" id="input-max-connections" min="1" max="100" step="1"></ui-num-input>
+                </ui-prop>
+            </section>
+
+            <section id="section-info" style="display:none">
+                <h3 id="txt-connection-info"></h3>
+                <div class="connection-details">
+                    <ui-prop>
+                        <ui-label slot="label" id="txt-http-url"></ui-label>
+                        <ui-input slot="content" id="el-http-url" readonly>
+                            <ui-button slot="suffix" id="btn-copy"></ui-button>
+                        </ui-input>
+                    </ui-prop>
+                </div>
+            </section>
+
+            <footer>
+                <ui-button id="btn-save" disabled></ui-button>
+            </footer>
+        </div>
     </div>
 </div>

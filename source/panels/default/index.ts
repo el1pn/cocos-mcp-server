@@ -1,12 +1,6 @@
-/* eslint-disable vue/one-component-per-file */
-
-import { readFileSync } from 'fs-extra';
+import { readFileSync } from 'fs';
 import { join } from 'path';
-import { createApp, App, defineComponent, ref, computed, onMounted, watch } from 'vue';
 
-const panelDataMap = new WeakMap<any, App>();
-
-// Define server settings interface
 interface ServerSettings {
     port: number;
     autoStart: boolean;
@@ -14,180 +8,130 @@ interface ServerSettings {
     maxConnections: number;
 }
 
+const panelMap = new WeakMap<object, ReturnType<typeof setInterval>>();
+
 module.exports = Editor.Panel.define({
     listeners: {
-        show() {
-            console.log('[MCP Panel] Panel shown');
-        },
-        hide() {
-            console.log('[MCP Panel] Panel hidden');
-        },
+        show() {},
+        hide() {},
     },
     template: readFileSync(join(__dirname, '../../../static/template/default/index.html'), 'utf-8'),
     style: readFileSync(join(__dirname, '../../../static/style/default/index.css'), 'utf-8'),
     $: {
         app: '#app',
-        panelTitle: '#panelTitle',
     },
     ready() {
-        if (this.$.app) {
-            const app = createApp({});
-            app.config.compilerOptions.isCustomElement = (tag) => tag.startsWith('ui-');
+        const root = this.$.app as HTMLElement;
+        const q = <T extends Element>(sel: string) => root.querySelector<T>(sel)!;
 
-            // Create main app component
-            app.component('McpServerApp', defineComponent({
-                setup() {
-                    // Reactive data
-                    const serverRunning = ref(false);
-                    const connectedClients = ref(0);
-                    const httpUrl = ref('');
-                    const isProcessing = ref(false);
+        const t = (key: string): string => {
+            const i18nKey = `cocos-mcp-server.${key}`;
+            return String(Editor.I18n?.t?.(i18nKey) || key);
+        };
 
-                    const settings = ref<ServerSettings>({
-                        port: 3000,
-                        autoStart: false,
-                        debugLog: false,
-                        maxConnections: 10,
-                    });
+        const settings: ServerSettings = { port: 3000, autoStart: false, debugLog: false, maxConnections: 10 };
+        let serverRunning = false;
 
-                    const t = (key: string, ...args: Array<string | number>): string => {
-                        const i18nKey = `cocos-mcp-server.${key}`;
-                        const translated = Editor.I18n?.t?.(i18nKey) || key;
-                        const baseText = String(translated);
-                        return args.reduce<string>((text, value, index) => {
-                            return text.replace(`{${index}}`, String(value));
-                        }, baseText);
-                    };
+        const elStatusValue    = q('#el-status-value');
+        const elPropConnections = q<HTMLElement>('#el-prop-connections');
+        const elConnectedClients = q('#el-connected-clients');
+        const btnToggle        = q<HTMLElement>('#btn-toggle');
+        const sectionInfo      = q<HTMLElement>('#section-info');
+        const elHttpUrl        = q<HTMLElement>('#el-http-url');
+        const inputPort        = q<HTMLElement>('#input-port');
+        const inputAutoStart   = q<HTMLElement>('#input-auto-start');
+        const inputDebugLog    = q<HTMLElement>('#input-debug-log');
+        const inputMaxConns    = q<HTMLElement>('#input-max-connections');
+        const btnSave          = q<HTMLElement>('#btn-save');
+        const btnCopy          = q<HTMLElement>('#btn-copy');
 
-                    // Computed properties
-                    const statusClass = computed(() => ({
-                        'status-running': serverRunning.value,
-                        'status-stopped': !serverRunning.value,
-                    }));
+        q('#txt-server-status').textContent    = t('server_status');
+        q('#txt-status-label').textContent     = t('status_label');
+        q('#txt-connections-label').textContent = t('connections_label');
+        q('#txt-settings').textContent         = t('settings');
+        q('#txt-port').textContent             = t('port');
+        q('#txt-auto-start').textContent       = t('auto_start');
+        q('#txt-debug-log').textContent        = t('debug_log');
+        q('#txt-max-connections').textContent  = t('max_connections');
+        q('#txt-connection-info').textContent  = t('connection_info');
+        q('#txt-http-url').textContent         = t('http_url');
+        btnCopy.textContent  = t('copy');
+        btnSave.textContent  = t('save_settings');
 
-                    const serverStatusText = computed(() => (
-                        serverRunning.value ? t('server_running_status') : t('server_stopped_status')
-                    ));
+        const updateUI = (running: boolean, clients: number, httpUrl: string) => {
+            serverRunning = running;
+            elStatusValue.textContent = running ? t('server_running_status') : t('server_stopped_status');
+            elStatusValue.className = `status-value ${running ? 'running' : 'stopped'}`;
+            elPropConnections.style.display = running ? '' : 'none';
+            elConnectedClients.textContent = String(clients);
+            btnToggle.textContent = running ? t('stop_server') : t('start_server');
+            sectionInfo.style.display = running ? '' : 'none';
+            elHttpUrl.setAttribute('value', httpUrl);
+            running ? inputPort.setAttribute('disabled', '') : inputPort.removeAttribute('disabled');
+        };
 
-                    const settingsChanged = ref(false);
+        const markChanged = () => {
+            btnSave.removeAttribute('disabled');
+        };
 
-                    const toggleServer = async () => {
-                        try {
-                            if (serverRunning.value) {
-                                await Editor.Message.request('cocos-mcp-server', 'stop-server');
-                            } else {
-                                const currentSettings = {
-                                    port: settings.value.port,
-                                    autoStart: settings.value.autoStart,
-                                    enableDebugLog: settings.value.debugLog,
-                                    maxConnections: settings.value.maxConnections,
-                                };
-                                await Editor.Message.request('cocos-mcp-server', 'update-settings', currentSettings);
-                                await Editor.Message.request('cocos-mcp-server', 'start-server');
-                            }
-                            console.log('[Vue App] Server toggled');
-                        } catch (error) {
-                            console.error('[Vue App] Failed to toggle server:', error);
-                        }
-                    };
+        Editor.Message.request('cocos-mcp-server', 'get-server-status').then((result: any) => {
+            if (result?.settings) {
+                settings.port           = result.settings.port           || 3000;
+                settings.autoStart      = result.settings.autoStart      || false;
+                settings.debugLog       = result.settings.enableDebugLog || false;
+                settings.maxConnections = result.settings.maxConnections || 10;
+            } else if (result?.port) {
+                settings.port = result.port;
+            }
+            inputPort.setAttribute('value', String(settings.port));
+            inputAutoStart.setAttribute('value', String(settings.autoStart));
+            inputDebugLog.setAttribute('value', String(settings.debugLog));
+            inputMaxConns.setAttribute('value', String(settings.maxConnections));
 
-                    const saveSettings = async () => {
-                        try {
-                            const settingsData = {
-                                port: settings.value.port,
-                                autoStart: settings.value.autoStart,
-                                enableDebugLog: settings.value.debugLog,
-                                maxConnections: settings.value.maxConnections,
-                            };
+            inputPort.addEventListener('confirm', (e: any)       => { settings.port           = Number(e.target.value);  markChanged(); });
+            inputAutoStart.addEventListener('confirm', (e: any)  => { settings.autoStart      = Boolean(e.target.value); markChanged(); });
+            inputDebugLog.addEventListener('confirm', (e: any)   => { settings.debugLog       = Boolean(e.target.value); markChanged(); });
+            inputMaxConns.addEventListener('confirm', (e: any)   => { settings.maxConnections = Number(e.target.value);  markChanged(); });
+        }).catch((e: any) => console.error('[MCP Panel] Failed to get server status:', e));
 
-                            const result = await Editor.Message.request('cocos-mcp-server', 'update-settings', settingsData);
-                            console.log('[Vue App] Save settings result:', result);
-                            settingsChanged.value = false;
-                        } catch (error) {
-                            console.error('[Vue App] Failed to save settings:', error);
-                        }
-                    };
+        btnToggle.addEventListener('click', async () => {
+            if (serverRunning) {
+                await Editor.Message.request('cocos-mcp-server', 'stop-server');
+            } else {
+                await Editor.Message.request('cocos-mcp-server', 'update-settings', {
+                    port: settings.port, autoStart: settings.autoStart,
+                    enableDebugLog: settings.debugLog, maxConnections: settings.maxConnections,
+                });
+                await Editor.Message.request('cocos-mcp-server', 'start-server');
+            }
+        });
 
-                    const copyUrl = async () => {
-                        try {
-                            await navigator.clipboard.writeText(httpUrl.value);
-                            console.log('[Vue App] URL copied to clipboard');
-                        } catch (error) {
-                            console.error('[Vue App] Failed to copy URL:', error);
-                        }
-                    };
+        btnSave.addEventListener('click', async () => {
+            await Editor.Message.request('cocos-mcp-server', 'update-settings', {
+                port: settings.port, autoStart: settings.autoStart,
+                enableDebugLog: settings.debugLog, maxConnections: settings.maxConnections,
+            });
+            btnSave.setAttribute('disabled', '');
+        });
 
-                    onMounted(async () => {
-                        try {
-                            const result = await Editor.Message.request('cocos-mcp-server', 'get-server-status');
-                            if (result && result.settings) {
-                                settings.value = {
-                                    port: result.settings.port || 3000,
-                                    autoStart: result.settings.autoStart || false,
-                                    debugLog: result.settings.enableDebugLog || false,
-                                    maxConnections: result.settings.maxConnections || 10,
-                                };
-                                console.log('[Vue App] Server settings loaded from status:', result.settings);
-                            } else if (result && result.port) {
-                                settings.value.port = result.port;
-                                console.log('[Vue App] Port loaded from server status:', result.port);
-                            }
-                        } catch (error) {
-                            console.error('[Vue App] Failed to get server status:', error);
-                            console.log('[Vue App] Using default server settings');
-                        }
+        btnCopy.addEventListener('click', () => {
+            navigator.clipboard.writeText(elHttpUrl.getAttribute('value') || '');
+        });
 
-                        // Watch after loading is complete to avoid triggering settingsChanged during load
-                        watch(settings, () => {
-                            settingsChanged.value = true;
-                        }, { deep: true });
-
-                        setInterval(async () => {
-                            try {
-                                const result = await Editor.Message.request('cocos-mcp-server', 'get-server-status');
-                                if (result) {
-                                    serverRunning.value = result.running;
-                                    connectedClients.value = result.clients || 0;
-                                    httpUrl.value = result.running ? `http://localhost:${result.port}` : '';
-                                    isProcessing.value = false;
-                                }
-                            } catch (error) {
-                                console.error('[Vue App] Failed to get server status:', error);
-                            }
-                        }, 2000);
-                    });
-
-                    return {
-                        serverRunning,
-                        serverStatusText,
-                        connectedClients,
-                        httpUrl,
-                        isProcessing,
-                        settings,
-                        settingsChanged,
-
-                        statusClass,
-
-                        t,
-                        toggleServer,
-                        saveSettings,
-                        copyUrl,
-                    };
-                },
-                template: readFileSync(join(__dirname, '../../../static/template/vue/mcp-server-app.html'), 'utf-8'),
-            }));
-
-            app.mount(this.$.app);
-            panelDataMap.set(this, app);
-
-            console.log('[MCP Panel] Vue3 app mounted successfully');
-        }
+        panelMap.set(this, setInterval(async () => {
+            try {
+                const result = await Editor.Message.request('cocos-mcp-server', 'get-server-status');
+                if (result) {
+                    updateUI(result.running, result.clients || 0, result.running ? `http://localhost:${result.port}` : '');
+                }
+            } catch (e) {
+                console.error('[MCP Panel] Failed to poll server status:', e);
+            }
+        }, 2000));
     },
     beforeClose() {},
     close() {
-        const app = panelDataMap.get(this);
-        if (app) {
-            app.unmount();
-        }
+        const interval = panelMap.get(this);
+        if (interval) clearInterval(interval);
     },
 });
