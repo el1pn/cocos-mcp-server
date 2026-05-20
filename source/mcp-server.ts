@@ -1,6 +1,5 @@
 import * as http from 'http';
 import * as url from 'url';
-import { v4 as uuidv4 } from 'uuid';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
 import { logger } from './logger';
 import { SceneTools } from './tools/scene-tools';
@@ -11,12 +10,9 @@ import { ProjectTools } from './tools/project-tools';
 import { DebugTools } from './tools/debug-tools';
 import { PreferencesTools } from './tools/preferences-tools';
 import { ServerTools } from './tools/server-tools';
-import { BroadcastTools } from './tools/broadcast-tools';
 import { SceneAdvancedTools } from './tools/scene-advanced-tools';
 import { AssetAdvancedTools } from './tools/asset-advanced-tools';
-import { ValidationTools } from './tools/validation-tools';
 import { BatchTools } from './tools/batch-tools';
-import { SearchTools } from './tools/search-tools';
 import { EditorTools } from './tools/editor-tools';
 import { MaterialTools } from './tools/material-tools';
 import { UIBuilderTools } from './tools/ui-builder-tools';
@@ -48,6 +44,7 @@ export class MCPServer {
     private tools: Record<string, any> = {};
     private toolsList: ToolDefinition[] = [];
     private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
+    private serverInstanceId: string;
     private toolQueue: Array<{
         run: () => Promise<any>;
         resolve: (value: any) => void;
@@ -57,6 +54,7 @@ export class MCPServer {
 
     constructor(settings: MCPServerSettings) {
         this.settings = settings;
+        this.serverInstanceId = crypto.randomUUID();
         this.initializeTools();
     }
 
@@ -71,12 +69,9 @@ export class MCPServer {
             this.tools.debug = new DebugTools();
             this.tools.preferences = new PreferencesTools();
             this.tools.server = new ServerTools();
-            this.tools.broadcast = new BroadcastTools();
             this.tools.sceneAdvanced = new SceneAdvancedTools();
             this.tools.assetAdvanced = new AssetAdvancedTools();
-            this.tools.validation = new ValidationTools();
             this.tools.batch = new BatchTools(this.executeToolCall.bind(this));
-            this.tools.search = new SearchTools();
             this.tools.editor = new EditorTools();
             this.tools.material = new MaterialTools();
             this.tools.uiBuilder = new UIBuilderTools();
@@ -109,7 +104,9 @@ export class MCPServer {
             } catch (err: any) {
                 lastError = err;
                 if (err.code === 'EADDRINUSE') {
-                    logger.warn(`Port ${port} in use, trying ${port + 1}...`);
+                    const retryDelay = Math.min(500 * (attempt + 1), 2000);
+                    logger.warn(`Port ${port} in use, trying ${port + 1} in ${retryDelay}ms (attempt ${attempt + 1}/${MCPServer.MAX_PORT_RETRIES})...`);
+                    await new Promise(resolve => setTimeout(resolve, retryDelay));
                     port++;
                 } else {
                     break;
@@ -362,7 +359,7 @@ export class MCPServer {
         res.setHeader(MCPServer.SESSION_HEADER, session.id);
         res.writeHead(200);
 
-        const streamId = uuidv4();
+        const streamId = crypto.randomUUID();
         const sessionStreamSet = this.sessionStreams.get(session.id) || new Map<string, http.ServerResponse>();
         sessionStreamSet.set(streamId, res);
         this.sessionStreams.set(session.id, sessionStreamSet);
@@ -443,10 +440,11 @@ export class MCPServer {
                 res.writeHead(404);
                 res.end(JSON.stringify({
                     jsonrpc: '2.0',
+                    id: null,
                     error: {
                         code: -32001,
-                        message: `Session not found: ${sessionId}`,
-                        data: { reinitialize: true }
+                        message: `Session not found: ${sessionId}. The server may have restarted — please re-initialize.`,
+                        data: { sessionId, serverRestarted: true, serverInstanceId: this.serverInstanceId }
                     }
                 }));
             }
@@ -457,7 +455,7 @@ export class MCPServer {
     }
 
     private handleSSEConnection(req: http.IncomingMessage, res: http.ServerResponse): void {
-        const clientId = uuidv4();
+        const clientId = crypto.randomUUID();
         this.setupSSEHeaders(res);
         res.writeHead(200);
 
@@ -492,7 +490,15 @@ export class MCPServer {
         const stream = this.legacySseStreams.get(sessionId);
         if (!stream) {
             res.writeHead(404);
-            res.end(JSON.stringify({ error: `SSE session not found: ${sessionId}` }));
+            res.end(JSON.stringify({
+                jsonrpc: '2.0',
+                id: null,
+                error: {
+                    code: -32001,
+                    message: `SSE session not found: ${sessionId}. The server may have restarted — please re-initialize.`,
+                    data: { sessionId, serverRestarted: true, serverInstanceId: this.serverInstanceId }
+                }
+            }));
             return;
         }
 
@@ -712,7 +718,7 @@ export class MCPServer {
                         return;
                     }
 
-                    const sessionId = uuidv4();
+                    const sessionId = crypto.randomUUID();
                     const response = await this.handleMessage(message, { protocolVersion });
                     const isQueueFull = response.error?.code === -32029;
                     if (!response.error) {
@@ -781,6 +787,9 @@ export class MCPServer {
                     headerProtocolVersion || session.protocolVersion
                 );
                 if (!protocolVersion) {
+                    if (session.protocolVersion === undefined) {
+                        this.clients.delete(session.id);
+                    }
                     res.writeHead(400);
                     res.end(JSON.stringify({
                         jsonrpc: '2.0',
@@ -890,7 +899,8 @@ export class MCPServer {
                         },
                         serverInfo: {
                             name: 'cocos-mcp-server',
-                            version: '1.0.0'
+                            version: '1.0.0',
+                            instanceId: this.serverInstanceId
                         },
                         instructions: 'You are connected to a running Cocos Creator editor via MCP. ' +
                             'Always inspect the current scene/prefab structure before making modifications, and query real-time editor data instead of guessing. ' +
@@ -1120,12 +1130,6 @@ export class MCPServer {
     }
 
     public stop(): void {
-        if (this.httpServer) {
-            this.httpServer.close();
-            this.httpServer = null;
-            logger.info('HTTP server stopped');
-        }
-
         for (const [_sessionId, streams] of this.sessionStreams.entries()) {
             for (const [_streamId, stream] of streams.entries()) {
                 try {
@@ -1146,6 +1150,17 @@ export class MCPServer {
         this.sessionStreams.clear();
         this.legacySseStreams.clear();
         this.clients.clear();
+
+        if (this.httpServer) {
+            try {
+                (this.httpServer as any).closeAllConnections?.();
+            } catch {
+                // closeAllConnections may not be available in older Node versions
+            }
+            this.httpServer.close();
+            this.httpServer = null;
+            logger.info('HTTP server stopped');
+        }
     }
 
     public getStatus(): ServerStatus {
