@@ -87,7 +87,8 @@
                 "getSceneHierarchy",
                 "createPrefabFromNode",
                 "revertPrefabInstance",
-                "controlAnimation"
+                "controlAnimation",
+                "captureSceneView"
             ]
         }
     }
