@@ -8,18 +8,18 @@ export class PrefabTools implements ToolExecutor {
         return [
             {
                 name: 'prefab_lifecycle',
-                description: 'Manage prefab lifecycle: create, instantiate, update, or duplicate prefabs. Use the "action" parameter to select the operation. NOTE: To open a prefab in prefab-edit mode in the editor, use scene_management with action "open" and the .prefab path — not this tool.',
+                description: 'Open, create, instantiate, update, or duplicate prefab ASSETS. Distinct concepts: "open" enters prefab-edit mode on the .prefab itself (replaces the currently open scene); "instantiate" spawns the prefab as a node inside the CURRENTLY open scene. For read-only metadata queries use prefab_query.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
-                            enum: ['create', 'instantiate', 'update', 'duplicate'],
-                            description: 'Action to perform: "create" - create a prefab from a node, "instantiate" - instantiate a prefab in the scene, "update" - update an existing prefab, "duplicate" - duplicate an existing prefab'
+                            enum: ['open', 'create', 'instantiate', 'update', 'duplicate'],
+                            description: 'Action to perform: "open" - open the .prefab in prefab-edit mode (replaces current open scene; needs prefabPath); "create" - save a scene node as a new prefab asset; "instantiate" - spawn the prefab as a node in the CURRENTLY OPEN scene (NOT the same as "open"); "update" - overwrite an existing prefab from a node; "duplicate" - copy a prefab file to a new path.'
                         },
                         prefabPath: {
                             type: 'string',
-                            description: 'Prefab asset path (used by: instantiate, update)'
+                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (used by: open, instantiate, update)'
                         },
                         nodeUuid: {
                             type: 'string',
@@ -64,18 +64,18 @@ export class PrefabTools implements ToolExecutor {
             },
             {
                 name: 'prefab_query',
-                description: 'Query prefab information: get a list of prefabs, load a prefab, get detailed info, or validate a prefab file. Use the "action" parameter to select the operation. NOTE: "load" only returns metadata — to open a prefab for editing use scene_management with action "open".',
+                description: 'Read-only metadata queries about prefab assets on disk. Does NOT open, load into a scene, or modify the editor state. If you want to OPEN a prefab for editing, call prefab_lifecycle with action "open". If you want to PLACE a prefab into the current scene, call prefab_lifecycle with action "instantiate".',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
-                            enum: ['get_list', 'load', 'get_info', 'validate'],
-                            description: 'Action to perform: "get_list" - get all prefabs in the project, "load" - load a prefab by path, "get_info" - get detailed prefab information, "validate" - validate a prefab file format'
+                            enum: ['get_list', 'get_info', 'validate'],
+                            description: 'Action to perform: "get_list" - list prefab asset paths under a folder; "get_info" - return metadata (uuid, name, path, createTime, modifyTime, dependencies) for a prefab — no editor side-effects; "validate" - check whether the prefab file on disk is well-formed.'
                         },
                         prefabPath: {
                             type: 'string',
-                            description: 'Prefab asset path (used by: load, get_info, validate)'
+                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (used by: get_info, validate)'
                         },
                         folder: {
                             type: 'string',
@@ -116,6 +116,8 @@ export class PrefabTools implements ToolExecutor {
         switch (toolName) {
             case 'prefab_lifecycle': {
                 switch (args.action) {
+                    case 'open':
+                        return await this.openPrefab(args.prefabPath);
                     case 'create':
                         return await this.createPrefab(args);
                     case 'instantiate':
@@ -132,8 +134,6 @@ export class PrefabTools implements ToolExecutor {
                 switch (args.action) {
                     case 'get_list':
                         return await this.getPrefabList(args.folder);
-                    case 'load':
-                        return await this.loadPrefab(args.prefabPath);
                     case 'get_info':
                         return await this.getPrefabInfo(args.prefabPath);
                     case 'validate':
@@ -178,26 +178,20 @@ export class PrefabTools implements ToolExecutor {
         });
     }
 
-    private async loadPrefab(prefabPath: string): Promise<ToolResponse> {
-        // "Load" here just resolves the prefab asset metadata — no scene-side
-        // load message exists in Cocos 3.8.x. Use asset-db directly.
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'query-asset-info', prefabPath).then((assetInfo: any) => {
-                if (!assetInfo) {
-                    throw new Error('Prefab not found');
-                }
-                resolve({
-                    success: true,
-                    data: {
-                        uuid: assetInfo.uuid,
-                        name: assetInfo.name,
-                        message: 'Prefab asset resolved'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+    private async openPrefab(prefabPath: string): Promise<ToolResponse> {
+        if (!prefabPath) {
+            return { success: false, error: 'prefabPath is required' };
+        }
+        try {
+            const uuid: string | null = await Editor.Message.request('asset-db', 'query-uuid', prefabPath);
+            if (!uuid) {
+                return { success: false, error: 'Prefab not found' };
+            }
+            await Editor.Message.request('scene', 'open-scene', uuid);
+            return { success: true, message: `Prefab opened in edit mode: ${prefabPath}`, data: { uuid } };
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
     }
 
     private async instantiatePrefab(args: any): Promise<ToolResponse> {
