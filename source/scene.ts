@@ -513,7 +513,9 @@ export const methods: { [key: string]: (...any: any) => any } = {
      *   height?: number,       // 1..2048, default 1080
      *   backgroundColor?: { r, g, b, a }  // 0..255, default opaque black
      * }
-     * Returns { success, data: { pngBase64, width, height, mode, cameraNodeUuid, cameraNodeName, mapping } }.
+     * opts.previewMaxWidth/previewMaxHeight (both required together): also return a downscaled
+     * previewBase64 (never upscaled) fitting within those bounds, alongside previewWidth/previewHeight.
+     * Returns { success, data: { pngBase64, width, height, mode, cameraNodeUuid, cameraNodeName, mapping, previewBase64?, previewWidth?, previewHeight? } }.
      */
     async captureSceneView(opts: any) {
         let cleanup: (() => void) | null = null;
@@ -522,7 +524,7 @@ export const methods: { [key: string]: (...any: any) => any } = {
             const { director, Camera, RenderTexture, Node, Vec3, Quat, Color, CCObject, UITransform } = cc;
             const scene = director.getScene();
             if (!scene) {
-                return { success: false, error: 'No active scene' };
+                return { success: false, error: 'No active scene', instruction: 'Open a scene first via scene_management(action="open" or "create").' };
             }
 
             opts = opts || {};
@@ -565,15 +567,15 @@ export const methods: { [key: string]: (...any: any) => any } = {
             if (mode === 'node') {
                 const node = findNodeDeep(scene, opts.nodeUuid);
                 if (!node) {
-                    return { success: false, error: `Node with UUID ${opts.nodeUuid} not found` };
+                    return { success: false, error: `Node with UUID ${opts.nodeUuid} not found`, instruction: 'Use scene_management(action="get_hierarchy") or node_lifecycle(action="get_info") to find a valid UUID.' };
                 }
                 const ut = node.getComponent(UITransform);
                 if (!ut) {
-                    return { success: false, error: 'capture_node requires the node to have a UITransform (2D node)' };
+                    return { success: false, error: 'capture_node requires the node to have a UITransform (2D node)', instruction: 'Use capture_scene or capture_camera for 3D nodes instead.' };
                 }
                 const rect = ut.getBoundingBoxToWorld(); // world-space Rect {x, y, width, height}
                 if (!rect || rect.width <= 0 || rect.height <= 0) {
-                    return { success: false, error: 'Node has zero-size world bounding box' };
+                    return { success: false, error: 'Node has zero-size world bounding box', instruction: 'The node (or all its children) has a zero-size UITransform. Set a non-zero contentSize, or capture a different node.' };
                 }
                 const ref = pickMain();
                 const imgAspect = width / height;
@@ -593,16 +595,16 @@ export const methods: { [key: string]: (...any: any) => any } = {
                 if (mode === 'camera') {
                     const cn = findNodeDeep(scene, opts.cameraUuid);
                     if (!cn) {
-                        return { success: false, error: `Camera node with UUID ${opts.cameraUuid} not found` };
+                        return { success: false, error: `Camera node with UUID ${opts.cameraUuid} not found`, instruction: 'Use scene_management(action="get_hierarchy") to find a valid camera node UUID.' };
                     }
                     src = cn.getComponent(Camera);
                     if (!src) {
-                        return { success: false, error: `Node ${opts.cameraUuid} has no Camera component` };
+                        return { success: false, error: `Node ${opts.cameraUuid} has no Camera component`, instruction: 'Pass the UUID of a node that has a Camera component attached, or use capture_scene to auto-pick one.' };
                     }
                 } else {
                     src = pickMain();
                     if (!src) {
-                        return { success: false, error: 'No Camera component found in the current scene' };
+                        return { success: false, error: 'No Camera component found in the current scene', instruction: 'Add a Camera component to a node, or use capture_camera/capture_node with an explicit target.' };
                     }
                 }
                 worldPos = src.node.getWorldPosition();
@@ -671,10 +673,20 @@ export const methods: { [key: string]: (...any: any) => any } = {
             if (!raw || raw.length < width * height * 4) {
                 cleanup();
                 cleanup = null;
-                return { success: false, error: 'readPixels returned no/insufficient data' };
+                return { success: false, error: 'readPixels returned no/insufficient data', instruction: 'The render target likely produced no frames. Retry; if it persists, reduce width/height or check GPU readback support.' };
             }
 
-            const pngBase64 = encodePngFlipped(raw, width, height);
+            const canvas = buildFlippedCanvas(raw, width, height);
+            const pngBase64 = canvasToPngBase64(canvas);
+            let previewBase64: string | undefined;
+            let previewWidth: number | undefined;
+            let previewHeight: number | undefined;
+            if (opts.previewMaxWidth && opts.previewMaxHeight) {
+                const preview = resizeCanvasToPngBase64(canvas, opts.previewMaxWidth, opts.previewMaxHeight);
+                previewBase64 = preview.base64;
+                previewWidth = preview.width;
+                previewHeight = preview.height;
+            }
 
             const wc = camNode.getWorldPosition();
             const worldUnitsPerPixel = (2 * orthoHeight) / height;
@@ -700,7 +712,11 @@ export const methods: { [key: string]: (...any: any) => any } = {
 
             return {
                 success: true,
-                data: { pngBase64, width, height, mode, cameraNodeUuid: srcUuid, cameraNodeName: srcName, mapping }
+                data: {
+                    pngBase64, width, height, mode,
+                    cameraNodeUuid: srcUuid, cameraNodeName: srcName, mapping,
+                    previewBase64, previewWidth, previewHeight
+                }
             };
         } catch (error: any) {
             if (cleanup) { cleanup(); }
@@ -738,11 +754,11 @@ function waitFrames(n: number): Promise<void> {
 }
 
 /**
- * Encode raw RGBA bytes (OpenGL bottom-left origin) into a base64 PNG, flipping
+ * Build a canvas from raw RGBA bytes (OpenGL bottom-left origin), flipping
  * vertically so the image is upright. Uses the scene process DOM canvas, which
  * the WebGL engine renderer always provides.
  */
-function encodePngFlipped(raw: Uint8Array, width: number, height: number): string {
+function buildFlippedCanvas(raw: Uint8Array, width: number, height: number): any {
     const g: any = globalThis as any;
     const doc: any = g.document;
     if (!doc || typeof doc.createElement !== 'function') {
@@ -759,6 +775,29 @@ function encodePngFlipped(raw: Uint8Array, width: number, height: number): strin
         img.data.set(raw.subarray(srcStart, srcStart + rowBytes), y * rowBytes);
     }
     ctx.putImageData(img, 0, 0);
+    return canvas;
+}
+
+/** Encode a canvas to base64 PNG (no data URL prefix). */
+function canvasToPngBase64(canvas: any): string {
     const dataUrl: string = canvas.toDataURL('image/png');
     return dataUrl.substring(dataUrl.indexOf(',') + 1);
+}
+
+/** Downscale (never upscale) a canvas to fit within maxWidth x maxHeight, preserving aspect ratio, and encode as base64 PNG. */
+function resizeCanvasToPngBase64(canvas: any, maxWidth: number, maxHeight: number): { base64: string; width: number; height: number } {
+    const g: any = globalThis as any;
+    const doc: any = g.document;
+    const scale = Math.min(1, maxWidth / canvas.width, maxHeight / canvas.height);
+    const outWidth = Math.max(1, Math.round(canvas.width * scale));
+    const outHeight = Math.max(1, Math.round(canvas.height * scale));
+    if (scale >= 1) {
+        return { base64: canvasToPngBase64(canvas), width: canvas.width, height: canvas.height };
+    }
+    const outCanvas: any = doc.createElement('canvas');
+    outCanvas.width = outWidth;
+    outCanvas.height = outHeight;
+    const ctx: any = outCanvas.getContext('2d');
+    ctx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, outWidth, outHeight);
+    return { base64: canvasToPngBase64(outCanvas), width: outWidth, height: outHeight };
 }

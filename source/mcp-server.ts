@@ -877,7 +877,16 @@ export class MCPServer {
                 case 'tools/call': {
                     const { name, arguments: args } = params;
                     const toolResult = await this.enqueueToolExecution(name, args);
-                    result = { content: [{ type: 'text', text: JSON.stringify(toolResult) }] };
+                    const { imageContent, ...toolResultText } = toolResult || {};
+                    const content: any[] = [{ type: 'text', text: JSON.stringify(toolResultText) }];
+                    if (Array.isArray(imageContent)) {
+                        for (const img of imageContent) {
+                            content.push({ type: 'image', data: img.base64, mimeType: img.mimeType });
+                        }
+                    }
+                    // structuredContent (MCP spec rev 2025-06-18): same payload as a validated object,
+                    // for clients that skip parsing the text block and read structuredContent instead.
+                    result = { content, structuredContent: toolResultText };
                     break;
                 }
                 case 'resources/list':

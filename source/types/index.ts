@@ -52,6 +52,8 @@ export interface ToolResponse {
     warning?: string;
     verificationData?: any;
     updatedProperties?: string[];
+    /** Inline images to surface as MCP `image` content blocks (see mcp-server.ts tools/call handling). */
+    imageContent?: Array<{ mimeType: string; base64: string }>;
 }
 
 export interface NodeInfo {
