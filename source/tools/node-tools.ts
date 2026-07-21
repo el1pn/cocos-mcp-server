@@ -27,7 +27,7 @@ export class NodeTools implements ToolExecutor {
                         },
                         parentUuid: {
                             type: 'string',
-                            description: "Parent node UUID. Used for 'create' action. STRONGLY RECOMMENDED: Always provide this parameter. Use get_current_scene or get_all_nodes to find parent UUIDs. If not provided, node will be created at scene root."
+                            description: "Parent node UUID (create). Strongly recommended — omit only to create at scene root."
                         },
                         nodeType: {
                             type: 'string',
@@ -42,25 +42,25 @@ export class NodeTools implements ToolExecutor {
                         },
                         assetUuid: {
                             type: 'string',
-                            description: "Asset UUID to instantiate from (e.g., prefab UUID). Used for 'create' action. When provided, creates a node instance from the asset instead of an empty node."
+                            description: "Asset UUID to instantiate from (create), e.g. a prefab UUID, instead of an empty node."
                         },
                         assetPath: {
                             type: 'string',
-                            description: "Asset path to instantiate from (e.g., \"db://assets/prefabs/MyPrefab.prefab\"). Used for 'create' action. Alternative to assetUuid."
+                            description: "Asset path to instantiate from (create), e.g. \"db://assets/prefabs/MyPrefab.prefab\". Alternative to assetUuid."
                         },
                         components: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: "Array of component type names to add to the new node (e.g., [\"cc.Sprite\", \"cc.Button\"]). Used for 'create' action."
+                            description: "Component types to add to the new node (create), e.g. [\"cc.Sprite\", \"cc.Button\"]."
                         },
                         unlinkPrefab: {
                             type: 'boolean',
-                            description: "If true and creating from prefab, unlink from prefab to create a regular node. Used for 'create' action.",
+                            description: "If true, unlink from source prefab to create a regular node (create).",
                             default: false
                         },
                         keepWorldTransform: {
                             type: 'boolean',
-                            description: "Whether to keep world transform when creating the node. Used for 'create' action.",
+                            description: "Keep world transform when creating the node (create).",
                             default: false
                         },
                         initialTransform: {
@@ -91,20 +91,20 @@ export class NodeTools implements ToolExecutor {
                                     }
                                 }
                             },
-                            description: "Initial transform to apply to the created node. Used for 'create' action."
+                            description: "Initial transform for the created node (create)."
                         },
                         includeChildren: {
                             type: 'boolean',
-                            description: "Include children nodes when duplicating. Used for 'duplicate' action.",
+                            description: "Include children when duplicating (duplicate).",
                             default: true
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: "Node UUID to move. Required for 'move' action."
+                            description: "Node UUID to move. Required for 'move'."
                         },
                         newParentUuid: {
                             type: 'string',
-                            description: "New parent node UUID. Required for 'move' action."
+                            description: "New parent node UUID. Required for 'move'."
                         }
                     },
                     required: ['action']

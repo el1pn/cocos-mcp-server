@@ -9,7 +9,7 @@ export class ProjectTools implements ToolExecutor {
         return [
             {
                 name: 'asset_query',
-                description: 'Query and retrieve asset information. Actions: get_info (get asset info by path), get_assets (list assets by type), find_by_name (search assets by name), get_details (get detailed asset info with sub-assets), query_path (get disk path from URL), query_uuid (get UUID from URL), query_url (get URL from UUID).',
+                description: 'Query asset info. Actions: get_info, get_assets (by type), find_by_name, get_details (with sub-assets), query_path (URL→disk path), query_uuid (URL→UUID), query_url (UUID→URL).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -20,53 +20,53 @@ export class ProjectTools implements ToolExecutor {
                         },
                         assetPath: {
                             type: 'string',
-                            description: 'Asset path, e.g. db://assets/... (used by: get_info, get_details)'
+                            description: 'Asset path, e.g. db://assets/... (get_info, get_details)'
                         },
                         type: {
                             type: 'string',
-                            description: 'Asset type filter (used by: get_assets)',
+                            description: 'Asset type filter (get_assets)',
                             enum: ['all', 'scene', 'prefab', 'script', 'texture', 'material', 'mesh', 'audio', 'animation'],
                             default: 'all'
                         },
                         folder: {
                             type: 'string',
-                            description: 'Folder to search in (used by: get_assets, find_by_name)',
+                            description: 'Folder to search in (get_assets, find_by_name)',
                             default: 'db://assets'
                         },
                         name: {
                             type: 'string',
-                            description: 'Asset name to search for, supports partial matching (used by: find_by_name)'
+                            description: 'Asset name to search, supports partial match (find_by_name)'
                         },
                         exactMatch: {
                             type: 'boolean',
-                            description: 'Whether to use exact name matching (used by: find_by_name)',
+                            description: 'Exact vs partial name match (find_by_name)',
                             default: false
                         },
                         assetType: {
                             type: 'string',
-                            description: 'Filter by asset type (used by: find_by_name)',
+                            description: 'Filter by asset type (find_by_name)',
                             enum: ['all', 'scene', 'prefab', 'script', 'texture', 'material', 'mesh', 'audio', 'animation', 'spriteFrame'],
                             default: 'all'
                         },
                         maxResults: {
                             type: 'number',
-                            description: 'Maximum number of results to return (used by: find_by_name)',
+                            description: 'Max results (find_by_name)',
                             default: 20,
                             minimum: 1,
                             maximum: 100
                         },
                         includeSubAssets: {
                             type: 'boolean',
-                            description: 'Include sub-assets like spriteFrame, texture (used by: get_details)',
+                            description: 'Include sub-assets like spriteFrame, texture (get_details)',
                             default: true
                         },
                         url: {
                             type: 'string',
-                            description: 'Asset URL (used by: query_path, query_uuid)'
+                            description: 'Asset URL (query_path, query_uuid)'
                         },
                         uuid: {
                             type: 'string',
-                            description: 'Asset UUID (used by: query_url)'
+                            description: 'Asset UUID (query_url)'
                         }
                     },
                     required: ['action']
@@ -74,7 +74,7 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'asset_crud',
-                description: 'Create, modify, and manage assets. Actions: create (create a new asset file or folder), copy (copy an asset), move (move an asset), delete (delete an asset), save (save asset content), reimport (reimport an asset), import (import an external file), refresh (refresh asset database).',
+                description: 'Create/modify/manage assets. Actions: create, copy, move, delete, save (content), reimport, import (external file), refresh (asset DB).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -85,37 +85,37 @@ export class ProjectTools implements ToolExecutor {
                         },
                         url: {
                             type: 'string',
-                            description: 'Asset URL (used by: create, delete, save, reimport)'
+                            description: 'Asset URL (create, delete, save, reimport)'
                         },
                         content: {
                             type: 'string',
-                            description: 'File content (used by: create [null for folder], save)',
+                            description: 'File content (create [null for folder], save)',
                             default: null
                         },
                         overwrite: {
                             type: 'boolean',
-                            description: 'Overwrite existing file (used by: create, copy, move)',
+                            description: 'Overwrite existing file (create, copy, move)',
                             default: false
                         },
                         source: {
                             type: 'string',
-                            description: 'Source asset URL (used by: copy, move)'
+                            description: 'Source asset URL (copy, move)'
                         },
                         target: {
                             type: 'string',
-                            description: 'Target location URL (used by: copy, move)'
+                            description: 'Target location URL (copy, move)'
                         },
                         sourcePath: {
                             type: 'string',
-                            description: 'Source file path on disk (used by: import)'
+                            description: 'Source file path on disk (import)'
                         },
                         targetFolder: {
                             type: 'string',
-                            description: 'Target folder in assets (used by: import)'
+                            description: 'Target folder in assets (import)'
                         },
                         folder: {
                             type: 'string',
-                            description: 'Specific folder to refresh (used by: refresh)'
+                            description: 'Specific folder to refresh (refresh)'
                         }
                     },
                     required: ['action']
@@ -123,7 +123,7 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'project_info',
-                description: 'Get project information and settings. Actions: get_info (get project name, path, UUID, version), get_settings (get project settings by category).',
+                description: 'Get project info/settings. Actions: get_info (name, path, UUID, version), get_settings (by category).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -134,7 +134,7 @@ export class ProjectTools implements ToolExecutor {
                         },
                         category: {
                             type: 'string',
-                            description: 'Settings category (used by: get_settings)',
+                            description: 'Settings category (get_settings)',
                             enum: ['general', 'physics', 'render', 'assets'],
                             default: 'general'
                         }
@@ -144,7 +144,7 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'project_build',
-                description: 'Inspect Cocos builder state and open the build panel. Actions: open_build_panel (open the build panel), get_build_settings (report builder readiness — full settings are not exposed via MCP), check_builder_status (check if builder worker is ready). Note: actually triggering a build/run/preview is NOT possible from MCP — ask the user to start it manually from the editor.',
+                description: 'Inspect Cocos builder state. Actions: open_build_panel, get_build_settings (readiness only, full settings not exposed via MCP), check_builder_status. Cannot trigger an actual build/run/preview from MCP — user must start it manually.',
                 inputSchema: {
                     type: 'object',
                     properties: {

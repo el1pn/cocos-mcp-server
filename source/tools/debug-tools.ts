@@ -34,7 +34,7 @@ export class DebugTools implements ToolExecutor {
         return [
             {
                 name: 'debug_console',
-                description: 'Manage editor console. Actions: get_logs (get editor console logs), clear (clear editor console), execute_script (execute JavaScript in scene context)',
+                description: 'Manage editor console. Actions: get_logs, clear, execute_script (run JS in scene context).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -45,18 +45,18 @@ export class DebugTools implements ToolExecutor {
                         },
                         limit: {
                             type: 'number',
-                            description: 'Number of recent logs to retrieve (action: get_logs)',
+                            description: 'Number of recent logs to retrieve (get_logs)',
                             default: 100
                         },
                         filter: {
                             type: 'string',
-                            description: 'Filter logs by type (action: get_logs)',
+                            description: 'Filter logs by type (get_logs)',
                             enum: ['all', 'log', 'warn', 'error', 'info'],
                             default: 'all'
                         },
                         script: {
                             type: 'string',
-                            description: 'JavaScript code to execute (action: execute_script)'
+                            description: 'JavaScript code to execute (execute_script)'
                         }
                     },
                     required: ['action']
@@ -64,7 +64,7 @@ export class DebugTools implements ToolExecutor {
             },
             {
                 name: 'debug_inspect',
-                description: 'Inspect and validate scene. Actions: get_node_tree (get detailed node tree), get_performance_stats (get performance statistics), validate_scene (validate current scene for issues), get_editor_info (get editor and environment information)',
+                description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -79,17 +79,17 @@ export class DebugTools implements ToolExecutor {
                         },
                         maxDepth: {
                             type: 'number',
-                            description: 'Maximum tree depth (action: get_node_tree)',
+                            description: 'Maximum tree depth (get_node_tree)',
                             default: 10
                         },
                         checkMissingAssets: {
                             type: 'boolean',
-                            description: 'Check for missing asset references (action: validate_scene)',
+                            description: 'Check for missing asset references (validate_scene)',
                             default: true
                         },
                         checkPerformance: {
                             type: 'boolean',
-                            description: 'Check for performance issues (action: validate_scene)',
+                            description: 'Check for performance issues (validate_scene)',
                             default: true
                         }
                     },
@@ -98,7 +98,7 @@ export class DebugTools implements ToolExecutor {
             },
             {
                 name: 'debug_logs',
-                description: 'Manage project log files. Actions: get_project_logs (get project logs from temp/logs/project.log), get_log_file_info (get information about the project log file), search_logs (search for specific patterns or errors in project logs)',
+                description: 'Manage project log files (temp/logs/project.log). Actions: get_project_logs, get_log_file_info, search_logs.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -109,35 +109,35 @@ export class DebugTools implements ToolExecutor {
                         },
                         lines: {
                             type: 'number',
-                            description: 'Number of lines to read from the end of the log file (action: get_project_logs)',
+                            description: 'Number of lines to read from the end of the log file (get_project_logs)',
                             default: 100,
                             minimum: 1,
                             maximum: 10000
                         },
                         filterKeyword: {
                             type: 'string',
-                            description: 'Filter logs containing specific keyword (action: get_project_logs)'
+                            description: 'Filter logs containing specific keyword (get_project_logs)'
                         },
                         logLevel: {
                             type: 'string',
-                            description: 'Filter by log level (action: get_project_logs)',
+                            description: 'Filter by log level (get_project_logs)',
                             enum: ['ERROR', 'WARN', 'INFO', 'DEBUG', 'TRACE', 'ALL'],
                             default: 'ALL'
                         },
                         pattern: {
                             type: 'string',
-                            description: 'Search pattern, supports regex (action: search_logs)'
+                            description: 'Search pattern, supports regex (search_logs)'
                         },
                         maxResults: {
                             type: 'number',
-                            description: 'Maximum number of matching results (action: search_logs)',
+                            description: 'Maximum number of matching results (search_logs)',
                             default: 20,
                             minimum: 1,
                             maximum: 100
                         },
                         contextLines: {
                             type: 'number',
-                            description: 'Number of context lines to show around each match (action: search_logs)',
+                            description: 'Number of context lines to show around each match (search_logs)',
                             default: 2,
                             minimum: 0,
                             maximum: 10

@@ -904,39 +904,17 @@ export class MCPServer {
                             version: '1.0.0',
                             instanceId: this.serverInstanceId
                         },
-                        instructions: 'You are connected to a running Cocos Creator editor via MCP. ' +
-                            'Always inspect the current scene/prefab structure before making modifications, and query real-time editor data instead of guessing. ' +
-                            'Always use MCP/editor APIs for scene, node, component, prefab, asset, project, and editor operations. ' +
-                            'Do not directly edit serialized Cocos files (.scene, .prefab, .meta, and related data files) for structural changes (adding/removing nodes or components, modifying __id__/UUID/array references); always use MCP/editor APIs for these. ' +
-                            'Exception: bulk find-replace of a single identifier value (e.g., renaming a __type__ CID or an enum string) is allowed via direct text edit when no MCP tool covers it, provided no JSON structure is changed and the working tree is committed beforehand. ' +
-                            'TypeScript/JavaScript source files (.ts, .js) can always be edited directly. ' +
-                            'All tools use an "action" parameter to specify operations. ' +
-                            'After creating or restructuring UI nodes, apply responsive defaults (anchors, widget constraints, and layout), and prefer ui_apply_responsive_defaults immediately for consistency. ' +
-                            'Prefer reusable prefab edits at the prefab asset source level; use scene-local overrides only when necessary. ' +
-                            'For any composite UI (popups, dialogs, panels, list items, cards, HUD widgets, etc.), do NOT assemble the tree from scratch via chained node_lifecycle.create calls. First locate an existing prefab template in this project (prefab_query.get_list, or asset_query.find_by_name with assetType="prefab"), then use prefab_lifecycle.instantiate and override properties via set_component_property. Build-from-scratch is only acceptable for trivial wrappers (≤3 children, no layout components). If no template fits, use ui_build_from_spec with a declarative UISpec — sketch the spec plus an ASCII tree preview, get user confirmation, then call the tool once; do not chain node_lifecycle/component_manage/set_component_property for new composite UI. ' +
-                            'Keep node names semantic, short, and consistent with component roles. ' +
-                            'When hierarchy or node names change, verify and update script references and lookup paths. ' +
-                            'Validate node/component/asset references after edits to ensure there are no missing links. ' +
-                            'Save and reload touched scene/prefab files before finishing to confirm serialization stability. ' +
-                            'Report performed changes clearly, including affected nodes, components, constraints, and presets. ' +
-                            'If requirements are ambiguous, ask for clarification instead of guessing layout behavior. ' +
-                            'MCP Resources available: cocos://hierarchy (scene tree), cocos://selection (current selection), cocos://logs/latest (server logs). ' +
-                            'Use batch_execute to run multiple operations in one call for efficiency. ' +
-                            'Key tools: scene_management (action: get_current/get_list/open/save/create/close/get_hierarchy), ' +
-                            'node_query (action: get_info/find_by_pattern/find_by_name/get_all/detect_type), ' +
-                            'node_lifecycle (action: create/delete/duplicate/move), ' +
-                            'node_transform (action: set_transform/set_property), ' +
-                            'component_manage (action: add/remove/attach_script), ' +
-                            'component_query (action: get_all/get_info/get_available), ' +
-                            'set_component_property (modify component properties), ' +
-                            'ui_apply_responsive_defaults (apply responsive widget/layout/anchor presets), ' +
-                            'prefab_lifecycle (action: create/instantiate/update/duplicate), ' +
-                            'prefab_query (action: get_list/load/get_info/validate), ' +
-                            'asset_query (action: get_info/get_assets/find_by_name/get_details/query_path/query_uuid/query_url), ' +
-                            'asset_crud (action: create/copy/move/delete/save/reimport/import/refresh), ' +
-                            'project_build (action: get_build_settings/open_build_panel/check_builder_status), ' +
-                            'debug_console (action: get_logs/clear/execute_script), ' +
-                            'batch_execute (run multiple operations sequentially in one call).'
+                        instructions: 'Connected to a running Cocos Creator editor via MCP. ' +
+                            'Inspect current scene/prefab via MCP before modifying; query real-time editor data, never guess. ' +
+                            'Use MCP/editor APIs (not direct file edits) for scene/node/component/prefab/asset/project/editor operations, especially structural changes (adding/removing nodes or components, __id__/UUID/array refs) to .scene/.prefab/.meta. ' +
+                            'Exception: bulk find-replace of a single identifier (e.g. __type__ CID, enum string) via direct text edit is OK when no tool covers it, no JSON structure changes, and tree is committed first. ' +
+                            '.ts/.js source is always directly editable. Most tools take an "action" param — see each tool schema for its actions. ' +
+                            'After creating/restructuring UI nodes, apply ui_apply_responsive_defaults. Prefer reusable prefab edits at the source asset over scene-local overrides. ' +
+                            'For composite UI (popups, panels, list items, HUD, etc.): do not hand-assemble via chained node_lifecycle.create. First check for an existing prefab template (prefab_query.get_list / asset_query.find_by_name type=prefab) and prefab_lifecycle.instantiate + set_component_property. ' +
+                            'Trivial wrappers (≤3 children, no layout) may be built from scratch. Otherwise use ui_build_from_spec: sketch the UISpec + ASCII tree, confirm with user, then one call. ' +
+                            'Keep node names semantic/short, matching their component role. On hierarchy/name changes, update script references and lookup paths. Validate refs after edits — no missing links. ' +
+                            'Save/reload touched scene/prefab before finishing. Report changes made (nodes, components, constraints, presets). Ask before guessing ambiguous layout requirements. ' +
+                            'Resources: cocos://hierarchy, cocos://selection, cocos://logs/latest. Use batch_execute to run multiple operations in one call.'
                     };
                     break;
                 default:

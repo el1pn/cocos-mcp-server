@@ -78,16 +78,11 @@ export class ComponentTools implements ToolExecutor {
                         },
                         property: {
                             type: 'string',
-                            description: 'Property name - The property to set. Common properties include:\n' +
-                                '• cc.Label: string (text content), fontSize (font size), color (text color)\n' +
-                                '• cc.Sprite: spriteFrame (sprite frame), color (tint color), sizeMode (size mode)\n' +
-                                '• cc.Button: normalColor (normal color), pressedColor (pressed color), target (target node)\n' +
-                                '• cc.UITransform: contentSize (content size), anchorPoint (anchor point)\n' +
-                                '• Custom Scripts: Based on properties defined in the script'
+                            description: 'Property name to set. If unsure, use component_query get_info first to list actual properties.'
                         },
                         propertyType: {
                             type: 'string',
-                            description: 'Property type - Must explicitly specify the property data type for correct value conversion and validation',
+                            description: 'Data type of the value, must match propertyType->value format below.',
                             enum: [
                                 'string', 'number', 'boolean', 'integer', 'float',
                                 'color', 'vec2', 'vec3', 'size',
@@ -106,42 +101,11 @@ export class ComponentTools implements ToolExecutor {
                                 { type: 'array' },
                                 { type: 'null' }
                             ],
-                            description: 'Property value - Use the corresponding data format based on propertyType:\n\n' +
-                                '📝 Basic Data Types:\n' +
-                                '• string: "Hello World" (text string)\n' +
-                                '• number/integer/float: 42 or 3.14 (numeric value)\n' +
-                                '• boolean: true or false (boolean value)\n\n' +
-                                '🎨 Color Type:\n' +
-                                '• color: {"r":255,"g":0,"b":0,"a":255} (RGBA values, range 0-255)\n' +
-                                '  - Alternative: "#FF0000" (hexadecimal format)\n' +
-                                '  - Transparency: a value controls opacity, 255 = fully opaque, 0 = fully transparent\n\n' +
-                                '📐 Vector and Size Types:\n' +
-                                '• vec2: {"x":100,"y":50} (2D vector)\n' +
-                                '• vec3: {"x":1,"y":2,"z":3} (3D vector)\n' +
-                                '• size: {"width":100,"height":50} (size dimensions)\n\n' +
-                                '🔗 Reference Types (using UUID strings):\n' +
-                                '• node: "target-node-uuid" (node reference)\n' +
-                                '  How to get: Use get_all_nodes or find_node_by_name to get node UUIDs\n' +
-                                '• component: "target-node-uuid" (component reference)\n' +
-                                '  How it works: \n' +
-                                '    1. Provide the UUID of the NODE that contains the target component\n' +
-                                '    2. System auto-detects required component type from property metadata\n' +
-                                '    3. Finds the component on target node and gets its scene __id__\n' +
-                                '    4. Sets reference using the scene __id__ (not node UUID)\n' +
-                                '  Example: value="label-node-uuid" will find cc.Label and use its scene ID\n' +
-                                '• spriteFrame: "spriteframe-uuid" (sprite frame asset)\n' +
-                                '  How to get: Check asset database or use asset browser\n' +
-                                '• prefab: "prefab-uuid" (prefab asset)\n' +
-                                '  How to get: Check asset database or use asset browser\n' +
-                                '• asset: "asset-uuid" (generic asset reference)\n' +
-                                '  How to get: Check asset database or use asset browser\n\n' +
-                                '📋 Array Types:\n' +
-                                '• nodeArray: ["uuid1","uuid2"] (array of node UUIDs)\n' +
-                                '• colorArray: [{"r":255,"g":0,"b":0,"a":255}] (array of colors)\n' +
-                                '• numberArray: [1,2,3,4,5] (array of numbers)\n' +
-                                '• stringArray: ["item1","item2"] (array of strings)\n' +
-                                '• assetArray: ["asset-uuid1","asset-uuid2"] (array of asset UUIDs, e.g. cc.SpriteAtlas, cc.Material)\n' +
-                                '• spriteFrameArray: ["sf-uuid1","sf-uuid2"] (array of SpriteFrame UUIDs)'
+                            description: 'Format per propertyType: string/number/boolean literal as-is. ' +
+                                'color: {r,g,b,a} 0-255 or "#FF0000". vec2: {x,y}. vec3: {x,y,z}. size: {width,height}. ' +
+                                'node/spriteFrame/prefab/asset: target UUID string (get_all_nodes/asset browser to find it). ' +
+                                'component: UUID of the NODE holding the target component (type auto-detected from property metadata, resolved to its scene __id__). ' +
+                                '*Array variants: JSON array of the above (e.g. numberArray: [1,2,3], nodeArray: ["uuid1","uuid2"]).'
                         }
                     },
                     required: ['nodeUuid', 'componentType', 'property', 'propertyType', 'value']

@@ -5,7 +5,7 @@ export class SceneAdvancedTools implements ToolExecutor {
         return [
             {
                 name: 'scene_state',
-                description: 'Query scene state and manage snapshots/reloads. Actions: query_ready (check if scene is ready), query_dirty (check unsaved changes), query_classes (list registered classes), query_components (list available components — supports optional `filter` substring and `limit`, default 200), query_component_has_script (check if component has script), query_nodes_by_asset (find nodes using an asset), soft_reload (soft reload scene), snapshot (create scene snapshot), snapshot_abort (abort snapshot creation)',
+                description: 'Query scene state / manage snapshots. Actions: query_ready, query_dirty (unsaved changes), query_classes (registered classes), query_components (filter+limit optional, default 200), query_component_has_script, query_nodes_by_asset, soft_reload, snapshot, snapshot_abort.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -40,7 +40,7 @@ export class SceneAdvancedTools implements ToolExecutor {
             },
             {
                 name: 'scene_undo',
-                description: 'Manage undo recording for scene operations. Actions: begin_recording (start recording undo data for a node), end_recording (finish recording), cancel_recording (cancel recording)',
+                description: 'Manage undo recording for scene operations. Actions: begin_recording (for a node), end_recording, cancel_recording.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -63,7 +63,7 @@ export class SceneAdvancedTools implements ToolExecutor {
             },
             {
                 name: 'node_advanced',
-                description: 'Advanced node operations including property resets, array manipulation, and prefab restoration. Actions: reset_property (reset node property to default), reset_transform (reset node position/rotation/scale), reset_component (reset component to defaults), move_array_element (move array element position), remove_array_element (remove array element at index), restore_prefab (restore prefab instance from asset)',
+                description: 'Advanced node ops: property/transform/component resets, array element move/remove, prefab restore. Actions: reset_property, reset_transform, reset_component, move_array_element, remove_array_element, restore_prefab.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -74,31 +74,31 @@ export class SceneAdvancedTools implements ToolExecutor {
                         },
                         uuid: {
                             type: 'string',
-                            description: 'Node or component UUID (required for reset_property, reset_transform, reset_component, move_array_element, remove_array_element)'
+                            description: 'Node or component UUID (reset_property, reset_transform, reset_component, move_array_element, remove_array_element)'
                         },
                         path: {
                             type: 'string',
-                            description: 'Property or array property path (required for reset_property, move_array_element, remove_array_element)'
+                            description: 'Property or array property path (reset_property, move_array_element, remove_array_element)'
                         },
                         target: {
                             type: 'number',
-                            description: 'Target item original index (required for move_array_element)'
+                            description: 'Target item original index (move_array_element)'
                         },
                         offset: {
                             type: 'number',
-                            description: 'Offset amount, positive or negative (required for move_array_element)'
+                            description: 'Offset amount, positive or negative (move_array_element)'
                         },
                         index: {
                             type: 'number',
-                            description: 'Target item index to remove (required for remove_array_element)'
+                            description: 'Target item index to remove (remove_array_element)'
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Node UUID (required for restore_prefab)'
+                            description: 'Node UUID (restore_prefab)'
                         },
                         assetUuid: {
                             type: 'string',
-                            description: 'Prefab asset UUID (required for restore_prefab)'
+                            description: 'Prefab asset UUID (restore_prefab)'
                         }
                     },
                     required: ['action']
@@ -106,7 +106,7 @@ export class SceneAdvancedTools implements ToolExecutor {
             },
             {
                 name: 'execute_method',
-                description: 'Execute methods on components or scene scripts. Actions: component_method (execute a method on a component), scene_script (execute a scene script method)',
+                description: 'Execute methods on components or scene scripts. Actions: component_method, scene_script.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -117,15 +117,15 @@ export class SceneAdvancedTools implements ToolExecutor {
                         },
                         uuid: {
                             type: 'string',
-                            description: 'Component UUID (required for component_method)'
+                            description: 'Component UUID (component_method)'
                         },
                         name: {
                             type: 'string',
-                            description: 'Method name for component_method, or plugin name for scene_script (required for both)'
+                            description: 'Method name (component_method) or plugin name (scene_script)'
                         },
                         method: {
                             type: 'string',
-                            description: 'Method name (required for scene_script)'
+                            description: 'Method name (scene_script)'
                         },
                         args: {
                             type: 'array',

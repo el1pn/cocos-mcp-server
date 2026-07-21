@@ -7,7 +7,7 @@ export class AssetAdvancedTools implements ToolExecutor {
         return [
             {
                 name: 'asset_advanced',
-                description: 'Advanced asset operations: generate available URLs, check DB readiness, get dependencies, find unused assets. Use the "action" parameter to select the operation.',
+                description: 'Advanced asset ops: generate available URLs, check DB readiness, get dependencies, find unused assets.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -18,37 +18,37 @@ export class AssetAdvancedTools implements ToolExecutor {
                         },
                         urlOrUUID: {
                             type: 'string',
-                            description: 'Asset URL or UUID (used by: get_dependencies)'
+                            description: 'Asset URL or UUID (get_dependencies)'
                         },
                         url: {
                             type: 'string',
-                            description: 'Asset URL to generate available URL for (used by: generate_url)'
+                            description: 'Asset URL to generate available URL for (generate_url)'
                         },
                         direction: {
                             type: 'string',
-                            description: 'Dependency direction (used by: get_dependencies)',
+                            description: 'Dependency direction (get_dependencies)',
                             enum: ['dependents', 'dependencies', 'both'],
                             default: 'dependencies'
                         },
                         directory: {
                             type: 'string',
-                            description: 'Directory to scan (used by: get_unused)',
+                            description: 'Directory to scan (get_unused)',
                             default: 'db://assets'
                         },
                         excludeDirectories: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: 'Directories to exclude from scan (used by: get_unused)',
+                            description: 'Directories to exclude from scan (get_unused)',
                             default: []
                         },
                         maxResults: {
                             type: 'number',
-                            description: 'Maximum number of unused assets to return (used by: get_unused). Default: 50',
+                            description: 'Maximum number of unused assets to return (get_unused). Default: 50',
                             default: 50
                         },
                         groupByFolder: {
                             type: 'boolean',
-                            description: 'Group results by folder with counts instead of listing every file (used by: get_unused). Default: false',
+                            description: 'Group results by folder with counts instead of listing every file (get_unused). Default: false',
                             default: false
                         }
                     },
@@ -57,7 +57,7 @@ export class AssetAdvancedTools implements ToolExecutor {
             },
             {
                 name: 'asset_batch',
-                description: 'Batch asset operations: import, delete, validate references, scan scene for missing refs. Use the "action" parameter to select the operation.',
+                description: 'Batch asset ops: import, delete, validate references, scan scene for missing refs.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -68,36 +68,36 @@ export class AssetAdvancedTools implements ToolExecutor {
                         },
                         sourceDirectory: {
                             type: 'string',
-                            description: 'Source directory path (used by: import)'
+                            description: 'Source directory path (import)'
                         },
                         targetDirectory: {
                             type: 'string',
-                            description: 'Target directory URL (used by: import)'
+                            description: 'Target directory URL (import)'
                         },
                         fileFilter: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: 'File extensions to include, e.g. [".png", ".jpg"] (used by: import)',
+                            description: 'File extensions to include, e.g. [".png", ".jpg"] (import)',
                             default: []
                         },
                         recursive: {
                             type: 'boolean',
-                            description: 'Include subdirectories (used by: import)',
+                            description: 'Include subdirectories (import)',
                             default: false
                         },
                         overwrite: {
                             type: 'boolean',
-                            description: 'Overwrite existing files (used by: import)',
+                            description: 'Overwrite existing files (import)',
                             default: false
                         },
                         urls: {
                             type: 'array',
                             items: { type: 'string' },
-                            description: 'Array of asset URLs to delete (used by: delete)'
+                            description: 'Array of asset URLs to delete (delete)'
                         },
                         directory: {
                             type: 'string',
-                            description: 'Directory to operate on (used by: validate_references)',
+                            description: 'Directory to operate on (validate_references)',
                             default: 'db://assets'
                         }
                     },

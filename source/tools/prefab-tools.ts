@@ -15,31 +15,31 @@ export class PrefabTools implements ToolExecutor {
                         action: {
                             type: 'string',
                             enum: ['open', 'create', 'instantiate', 'update', 'duplicate'],
-                            description: 'Action to perform: "open" - open the .prefab in prefab-edit mode (replaces current open scene; needs prefabPath); "create" - save a scene node as a new prefab asset; "instantiate" - spawn the prefab as a node in the CURRENTLY OPEN scene (NOT the same as "open"); "update" - overwrite an existing prefab from a node; "duplicate" - copy a prefab file to a new path.'
+                            description: '"open" - prefab-edit mode on .prefab, replaces current scene (needs prefabPath); "create" - save a scene node as new prefab asset; "instantiate" - spawn prefab as node in CURRENTLY open scene (not same as open); "update" - overwrite existing prefab from a node; "duplicate" - copy prefab file to new path.'
                         },
                         prefabPath: {
                             type: 'string',
-                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (used by: open, instantiate, update)'
+                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (open, instantiate, update)'
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Source node UUID (used by: create, update)'
+                            description: 'Source node UUID (create, update)'
                         },
                         savePath: {
                             type: 'string',
-                            description: 'Path to save the prefab, e.g. db://assets/prefabs/MyPrefab.prefab (used by: create)'
+                            description: 'Path to save the prefab, e.g. db://assets/prefabs/MyPrefab.prefab (create)'
                         },
                         prefabName: {
                             type: 'string',
-                            description: 'Prefab name (used by: create)'
+                            description: 'Prefab name (create)'
                         },
                         parentUuid: {
                             type: 'string',
-                            description: 'Parent node UUID (used by: instantiate, optional)'
+                            description: 'Parent node UUID (instantiate, optional)'
                         },
                         position: {
                             type: 'object',
-                            description: 'Initial position (used by: instantiate, optional)',
+                            description: 'Initial position (instantiate, optional)',
                             properties: {
                                 x: { type: 'number' },
                                 y: { type: 'number' },
@@ -48,15 +48,15 @@ export class PrefabTools implements ToolExecutor {
                         },
                         sourcePrefabPath: {
                             type: 'string',
-                            description: 'Source prefab path (used by: duplicate)'
+                            description: 'Source prefab path (duplicate)'
                         },
                         targetPrefabPath: {
                             type: 'string',
-                            description: 'Target prefab path (used by: duplicate)'
+                            description: 'Target prefab path (duplicate)'
                         },
                         newPrefabName: {
                             type: 'string',
-                            description: 'New prefab name (used by: duplicate, optional)'
+                            description: 'New prefab name (duplicate, optional)'
                         }
                     },
                     required: ['action']
@@ -64,22 +64,22 @@ export class PrefabTools implements ToolExecutor {
             },
             {
                 name: 'prefab_query',
-                description: 'Read-only metadata queries about prefab assets on disk. Does NOT open, load into a scene, or modify the editor state. If you want to OPEN a prefab for editing, call prefab_lifecycle with action "open". If you want to PLACE a prefab into the current scene, call prefab_lifecycle with action "instantiate".',
+                description: 'Read-only metadata queries about prefab assets on disk — no editor side-effects. Use prefab_lifecycle "open" to edit, "instantiate" to place into current scene.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             enum: ['get_list', 'get_info', 'validate'],
-                            description: 'Action to perform: "get_list" - list prefab asset paths under a folder; "get_info" - return metadata (uuid, name, path, createTime, modifyTime, dependencies) for a prefab — no editor side-effects; "validate" - check whether the prefab file on disk is well-formed.'
+                            description: '"get_list" - prefab asset paths under a folder; "get_info" - metadata (uuid, name, path, createTime, modifyTime, dependencies); "validate" - check prefab file is well-formed.'
                         },
                         prefabPath: {
                             type: 'string',
-                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (used by: get_info, validate)'
+                            description: 'Prefab asset path, e.g. db://assets/prefabs/Foo.prefab (get_info, validate)'
                         },
                         folder: {
                             type: 'string',
-                            description: 'Folder path to search (used by: get_list, optional, default: db://assets)',
+                            description: 'Folder path to search (get_list, optional)',
                             default: 'db://assets'
                         }
                     },
@@ -88,22 +88,22 @@ export class PrefabTools implements ToolExecutor {
             },
             {
                 name: 'prefab_instance',
-                description: 'Manage prefab instances: revert a prefab instance to its original state or restore a prefab node using a prefab asset. Use the "action" parameter to select the operation.',
+                description: 'Manage prefab instances. Actions: revert (to original state), restore (from a prefab asset, built-in undo record).',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             enum: ['revert', 'restore'],
-                            description: 'Action to perform: "revert" - revert prefab instance to original, "restore" - restore prefab node using prefab asset (built-in undo record)'
+                            description: 'The action to perform'
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Prefab instance node UUID (used by: revert, restore)'
+                            description: 'Prefab instance node UUID (revert, restore)'
                         },
                         assetUuid: {
                             type: 'string',
-                            description: 'Prefab asset UUID (used by: restore)'
+                            description: 'Prefab asset UUID (restore)'
                         }
                     },
                     required: ['action', 'nodeUuid']
