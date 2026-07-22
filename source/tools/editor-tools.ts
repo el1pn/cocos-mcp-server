@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
 import * as fs from 'fs';
+import { editorRequest } from '../utils/editor-request';
 
 export class EditorTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -83,9 +84,9 @@ export class EditorTools implements ToolExecutor {
 
         // Map common menu paths to their actual Editor.Message equivalents in 3.8.x
         const menuActionMap: Record<string, () => Promise<any>> = {
-            'File/Save Scene': () => Editor.Message.request('scene', 'save-scene'),
-            'File/Build': () => Editor.Message.request('builder', 'open', 'default'),
-            'Project/Build': () => Editor.Message.request('builder', 'open', 'default'),
+            'File/Save Scene': () => editorRequest('scene', 'save-scene'),
+            'File/Build': () => editorRequest('builder', 'open', 'default'),
+            'Project/Build': () => editorRequest('builder', 'open', 'default'),
         };
 
         const normalizedPath = menuPath.trim();
@@ -102,7 +103,7 @@ export class EditorTools implements ToolExecutor {
 
         // Fallback: try sending as a generic editor message
         try {
-            await Editor.Message.request('editor', 'execute-menu', normalizedPath);
+            await editorRequest('editor', 'execute-menu', normalizedPath);
             return { success: true, message: `Menu item executed: ${menuPath}` };
         } catch {
             return {
@@ -122,7 +123,7 @@ export class EditorTools implements ToolExecutor {
             // Resolve db:// path to filesystem path
             let fsPath = filePath;
             if (filePath.startsWith('db://')) {
-                const resolved = await Editor.Message.request('asset-db', 'query-path', filePath);
+                const resolved = await editorRequest('asset-db', 'query-path', filePath);
                 if (!resolved) {
                     return { success: false, error: `Could not resolve path: ${filePath}` };
                 }
@@ -168,7 +169,7 @@ export class EditorTools implements ToolExecutor {
             // Refresh asset if it's a db:// path
             if (filePath.startsWith('db://')) {
                 try {
-                    await Editor.Message.request('asset-db', 'refresh-asset', filePath);
+                    await editorRequest('asset-db', 'refresh-asset', filePath);
                 } catch {
                     // Best effort
                 }
@@ -188,7 +189,7 @@ export class EditorTools implements ToolExecutor {
         if (!targetUuid) return { success: false, error: 'targetUuid is required for find_references' };
 
         try {
-            const tree = await Editor.Message.request('scene', 'query-node-tree');
+            const tree = await editorRequest('scene', 'query-node-tree');
             if (!tree) {
                 return { success: false, error: 'No scene loaded' };
             }

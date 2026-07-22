@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { editorRequest, toolCall, withTimeout } from '../utils/editor-request';
 
 const MODULE_LOADED_AT = Date.now();
 
@@ -74,53 +75,41 @@ export class ServerTools implements ToolExecutor {
     }
 
     private async queryServerIPList(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('server', 'query-ip-list').then((ipList: string[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        ipList: ipList,
-                        count: ipList.length,
-                        message: 'IP list retrieved successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<string[]>('server', 'query-ip-list'),
+            (ipList) => ({
+                data: {
+                    ipList: ipList,
+                    count: ipList.length,
+                    message: 'IP list retrieved successfully'
+                }
+            })
+        );
     }
 
     private async querySortedServerIPList(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('server', 'query-sort-ip-list').then((sortedIPList: string[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        sortedIPList: sortedIPList,
-                        count: sortedIPList.length,
-                        message: 'Sorted IP list retrieved successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<string[]>('server', 'query-sort-ip-list'),
+            (sortedIPList) => ({
+                data: {
+                    sortedIPList: sortedIPList,
+                    count: sortedIPList.length,
+                    message: 'Sorted IP list retrieved successfully'
+                }
+            })
+        );
     }
 
     private async queryServerPort(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('server', 'query-port').then((port: number) => {
-                resolve({
-                    success: true,
-                    data: {
-                        port: port,
-                        message: `Editor server is running on port ${port}`
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<number>('server', 'query-port'),
+            (port) => ({
+                data: {
+                    port: port,
+                    message: `Editor server is running on port ${port}`
+                }
+            })
+        );
     }
 
     private async getServerStatus(): Promise<ToolResponse> {
@@ -171,12 +160,7 @@ export class ServerTools implements ToolExecutor {
     private async checkServerConnectivity(timeout: number = 5000): Promise<ToolResponse> {
         const startTime = Date.now();
         try {
-            const testPromise = Editor.Message.request('server', 'query-port');
-            const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error('Connection timeout')), timeout);
-            });
-
-            await Promise.race([testPromise, timeoutPromise]);
+            await withTimeout(Editor.Message.request('server', 'query-port'), timeout, 'server.query-port');
 
             const responseTime = Date.now() - startTime;
             return {

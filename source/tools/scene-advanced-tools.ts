@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class SceneAdvancedTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -211,285 +212,173 @@ export class SceneAdvancedTools implements ToolExecutor {
     }
 
     private async resetNodeProperty(uuid: string, path: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'reset-property', {
-                uuid,
-                path,
-                dump: { value: null }
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: `Property '${path}' reset to default value`
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'reset-property', { uuid, path, dump: { value: null } }),
+            () => ({ message: `Property '${path}' reset to default value` })
+        );
     }
 
     private async moveArrayElement(uuid: string, path: string, target: number, offset: number): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'move-array-element', {
-                uuid,
-                path,
-                target,
-                offset
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: `Array element at index ${target} moved by ${offset}`
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'move-array-element', { uuid, path, target, offset }),
+            () => ({ message: `Array element at index ${target} moved by ${offset}` })
+        );
     }
 
     private async removeArrayElement(uuid: string, path: string, index: number): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'remove-array-element', {
-                uuid,
-                path,
-                index
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: `Array element at index ${index} removed`
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'remove-array-element', { uuid, path, index }),
+            () => ({ message: `Array element at index ${index} removed` })
+        );
     }
 
     private async resetNodeTransform(uuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'reset-node', { uuid }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Node transform reset to default'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'reset-node', { uuid }),
+            () => ({ message: 'Node transform reset to default' })
+        );
     }
 
     private async resetComponent(uuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'reset-component', { uuid }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Component reset to default values'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'reset-component', { uuid }),
+            () => ({ message: 'Component reset to default values' })
+        );
     }
 
     private async restorePrefab(nodeUuid: string, assetUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            (Editor.Message.request as any)('scene', 'restore-prefab', nodeUuid, assetUuid).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Prefab restored successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'restore-prefab', nodeUuid, assetUuid),
+            () => ({ message: 'Prefab restored successfully' })
+        );
     }
 
     private async executeComponentMethod(uuid: string, name: string, args: any[] = []): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'execute-component-method', {
-                uuid,
-                name,
-                args
-            }).then((result: any) => {
-                resolve({
-                    success: true,
-                    data: {
-                        result: result,
-                        message: `Method '${name}' executed successfully`
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<any>('scene', 'execute-component-method', { uuid, name, args }),
+            (result) => ({
+                data: {
+                    result: result,
+                    message: `Method '${name}' executed successfully`
+                }
+            })
+        );
     }
 
     private async executeSceneScript(name: string, method: string, args: any[] = []): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'execute-scene-script', {
-                name,
-                method,
-                args
-            }).then((result: any) => {
+        return toolCall(
+            () => editorRequest<any>('scene', 'execute-scene-script', { name, method, args }),
+            (result) => {
                 // Cocos `execute-scene-script` returns the script's actual return value.
                 // A non-existent method silently resolves to `undefined`, indistinguishable from a void return.
                 // Surface this so callers don't treat missing method as success.
                 if (result === undefined) {
-                    resolve({
-                        success: true,
+                    return {
                         data: null,
                         warning: `Plugin '${name}' returned undefined for method '${method}'. This may mean the method does not exist OR the method intentionally returns void. Verify the script defines '${method}' before relying on this call's effect.`
-                    });
-                    return;
+                    };
                 }
-                resolve({
-                    success: true,
-                    data: result
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                return { data: result };
+            }
+        );
     }
 
     private async sceneSnapshot(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'snapshot').then(() => {
-                resolve({
-                    success: true,
-                    message: 'Scene snapshot created'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'snapshot'),
+            () => ({ message: 'Scene snapshot created' })
+        );
     }
 
     private async sceneSnapshotAbort(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'snapshot-abort').then(() => {
-                resolve({
-                    success: true,
-                    message: 'Scene snapshot aborted'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'snapshot-abort'),
+            () => ({ message: 'Scene snapshot aborted' })
+        );
     }
 
     private async beginUndoRecording(nodeUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'begin-recording', nodeUuid).then((undoId: string) => {
-                resolve({
-                    success: true,
-                    data: {
-                        undoId: undoId,
-                        message: 'Undo recording started'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<string>('scene', 'begin-recording', nodeUuid),
+            (undoId) => ({
+                data: {
+                    undoId: undoId,
+                    message: 'Undo recording started'
+                }
+            })
+        );
     }
 
     private async endUndoRecording(undoId: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'end-recording', undoId).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Undo recording ended'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'end-recording', undoId),
+            () => ({ message: 'Undo recording ended' })
+        );
     }
 
     private async cancelUndoRecording(undoId: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'cancel-recording', undoId).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Undo recording cancelled'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'cancel-recording', undoId),
+            () => ({ message: 'Undo recording cancelled' })
+        );
     }
 
     private async softReloadScene(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'soft-reload').then(() => {
-                resolve({
-                    success: true,
-                    message: 'Scene soft reloaded successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'soft-reload'),
+            () => ({ message: 'Scene soft reloaded successfully' })
+        );
     }
 
     private async querySceneReady(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-is-ready').then((ready: boolean) => {
-                resolve({
-                    success: true,
-                    data: {
-                        ready: ready,
-                        message: ready ? 'Scene is ready' : 'Scene is not ready'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<boolean>('scene', 'query-is-ready'),
+            (ready) => ({
+                data: {
+                    ready: ready,
+                    message: ready ? 'Scene is ready' : 'Scene is not ready'
+                }
+            })
+        );
     }
 
     private async querySceneDirty(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-dirty').then((dirty: boolean) => {
-                resolve({
-                    success: true,
-                    data: {
-                        dirty: dirty,
-                        message: dirty ? 'Scene has unsaved changes' : 'Scene is clean'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<boolean>('scene', 'query-dirty'),
+            (dirty) => ({
+                data: {
+                    dirty: dirty,
+                    message: dirty ? 'Scene has unsaved changes' : 'Scene is clean'
+                }
+            })
+        );
     }
 
     private async querySceneClasses(extendsClass?: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const options: any = {};
-            if (extendsClass) {
-                options.extends = extendsClass;
-            }
+        const options: any = {};
+        if (extendsClass) {
+            options.extends = extendsClass;
+        }
 
-            Editor.Message.request('scene', 'query-classes', options).then((classes: any[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        classes: classes,
-                        count: classes.length,
-                        extendsFilter: extendsClass
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<any[]>('scene', 'query-classes', options),
+            (classes) => ({
+                data: {
+                    classes: classes,
+                    count: classes.length,
+                    extendsFilter: extendsClass
+                }
+            })
+        );
     }
 
     private async querySceneComponents(filter?: string, limit?: number): Promise<ToolResponse> {
         // Editor returns ~1000+ entries (~170k chars) which can exceed MCP token limits.
         // Slim each entry to {name, cid} and apply optional substring filter + limit.
         const max = typeof limit === 'number' && limit > 0 ? Math.min(limit, 1000) : 200;
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-components').then((components: any[]) => {
+        return toolCall(
+            () => editorRequest<any[]>('scene', 'query-components'),
+            (components) => {
                 let slim = components.map((c: any) => ({ name: c.name, cid: c.cid }));
                 if (filter) {
                     const needle = filter.toLowerCase();
@@ -497,8 +386,7 @@ export class SceneAdvancedTools implements ToolExecutor {
                 }
                 const total = slim.length;
                 const truncated = total > max;
-                resolve({
-                    success: true,
+                return {
                     data: {
                         components: slim.slice(0, max),
                         count: Math.min(total, max),
@@ -506,45 +394,35 @@ export class SceneAdvancedTools implements ToolExecutor {
                         truncated,
                         filter: filter || null
                     }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                };
+            }
+        );
     }
 
     private async queryComponentHasScript(className: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-component-has-script', className).then((hasScript: boolean) => {
-                resolve({
-                    success: true,
-                    data: {
-                        className: className,
-                        hasScript: hasScript,
-                        message: hasScript ? `Component '${className}' has script` : `Component '${className}' does not have script`
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<boolean>('scene', 'query-component-has-script', className),
+            (hasScript) => ({
+                data: {
+                    className: className,
+                    hasScript: hasScript,
+                    message: hasScript ? `Component '${className}' has script` : `Component '${className}' does not have script`
+                }
+            })
+        );
     }
 
     private async queryNodesByAssetUuid(assetUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-nodes-by-asset-uuid', assetUuid).then((nodeUuids: string[]) => {
-                resolve({
-                    success: true,
-                    data: {
-                        assetUuid: assetUuid,
-                        nodeUuids: nodeUuids,
-                        count: nodeUuids.length,
-                        message: `Found ${nodeUuids.length} nodes using asset`
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<string[]>('scene', 'query-nodes-by-asset-uuid', assetUuid),
+            (nodeUuids) => ({
+                data: {
+                    assetUuid: assetUuid,
+                    nodeUuids: nodeUuids,
+                    count: nodeUuids.length,
+                    message: `Found ${nodeUuids.length} nodes using asset`
+                }
+            })
+        );
     }
 }

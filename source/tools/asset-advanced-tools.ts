@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class AssetAdvancedTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -143,38 +144,30 @@ export class AssetAdvancedTools implements ToolExecutor {
     }
 
     private async generateAvailableUrl(url: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'generate-available-url', url).then((availableUrl: string) => {
-                resolve({
-                    success: true,
-                    data: {
-                        originalUrl: url,
-                        availableUrl: availableUrl,
-                        message: availableUrl === url ?
-                            'URL is available' :
-                            'Generated new available URL'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<string>('asset-db', 'generate-available-url', url),
+            (availableUrl) => ({
+                data: {
+                    originalUrl: url,
+                    availableUrl: availableUrl,
+                    message: availableUrl === url ?
+                        'URL is available' :
+                        'Generated new available URL'
+                }
+            })
+        );
     }
 
     private async queryAssetDbReady(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'query-ready').then((ready: boolean) => {
-                resolve({
-                    success: true,
-                    data: {
-                        ready: ready,
-                        message: ready ? 'Asset database is ready' : 'Asset database is not ready'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<boolean>('asset-db', 'query-ready'),
+            (ready) => ({
+                data: {
+                    ready: ready,
+                    message: ready ? 'Asset database is ready' : 'Asset database is not ready'
+                }
+            })
+        );
     }
 
     private async batchImportAssets(args: any): Promise<ToolResponse> {
@@ -201,7 +194,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                     const fileName = path.basename(filePath);
                     const targetPath = `${args.targetDirectory}/${fileName}`;
 
-                    const result = await Editor.Message.request('asset-db', 'import-asset',
+                    const result = await editorRequest('asset-db', 'import-asset',
                         filePath, targetPath, {
                             overwrite: args.overwrite || false,
                             rename: !(args.overwrite || false)
@@ -270,7 +263,7 @@ export class AssetAdvancedTools implements ToolExecutor {
 
             for (const url of urls) {
                 try {
-                    await Editor.Message.request('asset-db', 'delete-asset', url);
+                    await editorRequest('asset-db', 'delete-asset', url);
                     deleteResults.push({
                         url: url,
                         success: true
@@ -304,14 +297,14 @@ export class AssetAdvancedTools implements ToolExecutor {
     private async validateAssetReferences(directory: string = 'db://assets'): Promise<ToolResponse> {
         try {
             // Get all assets in directory
-            const assets = await Editor.Message.request('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
+            const assets = await editorRequest<any[]>('asset-db', 'query-assets', { pattern: `${directory}/**/*` });
 
             const brokenReferences: any[] = [];
             const validReferences: any[] = [];
 
             for (const asset of assets) {
                 try {
-                    const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', asset.url);
+                    const assetInfo = await editorRequest('asset-db', 'query-asset-info', asset.url);
                     if (assetInfo) {
                         validReferences.push({
                             url: asset.url,
@@ -348,7 +341,7 @@ export class AssetAdvancedTools implements ToolExecutor {
     private async scanSceneMissingRefs(): Promise<ToolResponse> {
         try {
             // Step 1: Walk node tree, collect all node UUIDs
-            const nodeTree = await Editor.Message.request('scene', 'query-node-tree');
+            const nodeTree = await editorRequest('scene', 'query-node-tree');
             if (!nodeTree) return { success: false, error: 'Failed to query scene node tree' };
 
             const nodeUuids: string[] = [];
@@ -370,7 +363,7 @@ export class AssetAdvancedTools implements ToolExecutor {
             for (let i = 0; i < nodeUuids.length; i += NODE_BATCH) {
                 const batch = nodeUuids.slice(i, i + NODE_BATCH);
                 const results = await Promise.all(
-                    batch.map(uuid => Editor.Message.request('scene', 'query-node', uuid).catch(() => null))
+                    batch.map(uuid => editorRequest('scene', 'query-node', uuid).catch(() => null))
                 );
                 for (let j = 0; j < results.length; j++) {
                     const nodeData = results[j];
@@ -403,7 +396,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                 const batch = uniqueUuids.slice(i, i + ASSET_BATCH);
                 const results = await Promise.all(
                     batch.map(uuid =>
-                        Editor.Message.request('asset-db', 'query-asset-info', uuid)
+                        editorRequest('asset-db', 'query-asset-info', uuid)
                             .then((info: any) => ({ uuid, exists: !!info }))
                             .catch(() => ({ uuid, exists: false }))
                     )
@@ -508,12 +501,12 @@ export class AssetAdvancedTools implements ToolExecutor {
 
             if (urlOrUUID.startsWith('db://')) {
                 assetUrl = urlOrUUID;
-                const info = await Editor.Message.request('asset-db', 'query-asset-info', urlOrUUID);
+                const info = await editorRequest<any>('asset-db', 'query-asset-info', urlOrUUID);
                 if (!info?.uuid) return { success: false, error: `Asset not found: ${urlOrUUID}` };
                 assetUuid = info.uuid;
             } else {
                 assetUuid = urlOrUUID;
-                const url = await Editor.Message.request('asset-db', 'query-url', urlOrUUID);
+                const url = await editorRequest<string>('asset-db', 'query-url', urlOrUUID);
                 if (!url) return { success: false, error: `Asset not found: ${urlOrUUID}` };
                 assetUrl = url;
             }
@@ -524,7 +517,7 @@ export class AssetAdvancedTools implements ToolExecutor {
             // Collect all UUIDs for this asset (main + sub-assets from .meta)
             const allAssetUuids = new Set<string>([assetUuid]);
             try {
-                const fsPath = await Editor.Message.request('asset-db', 'query-path', assetUrl);
+                const fsPath = await editorRequest<string>('asset-db', 'query-path', assetUrl);
                 if (fsPath) {
                     const metaPath = fsPath + '.meta';
                     if (fs.existsSync(metaPath)) {
@@ -540,7 +533,7 @@ export class AssetAdvancedTools implements ToolExecutor {
             // Find dependencies: assets this file references via __uuid__ and __type__
             if (direction === 'dependencies' || direction === 'both') {
                 try {
-                    const fsPath = await Editor.Message.request('asset-db', 'query-path', assetUrl);
+                    const fsPath = await editorRequest<string>('asset-db', 'query-path', assetUrl);
                     if (fsPath && fs.existsSync(fsPath)) {
                         const content = fs.readFileSync(fsPath, 'utf8');
                         const seen = new Set<string>();
@@ -553,7 +546,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                             seen.add(baseUuid);
 
                             try {
-                                const refUrl = await Editor.Message.request('asset-db', 'query-url', baseUuid);
+                                const refUrl = await editorRequest<string>('asset-db', 'query-url', baseUuid);
                                 dependencies.push({ uuid: baseUuid, url: refUrl || 'unresolved' });
                             } catch {
                                 dependencies.push({ uuid: baseUuid, url: 'unresolved' });
@@ -567,7 +560,7 @@ export class AssetAdvancedTools implements ToolExecutor {
                             if (!decompressed || seen.has(decompressed)) continue;
                             seen.add(decompressed);
                             try {
-                                const refUrl = await Editor.Message.request('asset-db', 'query-url', decompressed);
+                                const refUrl = await editorRequest<string>('asset-db', 'query-url', decompressed);
                                 if (refUrl) {
                                     dependencies.push({ uuid: decompressed, url: refUrl });
                                 }

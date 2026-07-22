@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class MaterialTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -75,28 +76,28 @@ export class MaterialTools implements ToolExecutor {
             return { success: false, error: 'url/uuid and metaChanges are required' };
         }
 
-        try {
-            let uuid: string = identifier;
-            if (identifier.startsWith('db://')) {
-                const resolved = await Editor.Message.request('asset-db', 'query-uuid', identifier);
-                if (!resolved) return { success: false, error: `Asset not found: ${identifier}` };
-                uuid = resolved as string;
-            }
+        return toolCall(
+            async () => {
+                let uuid: string = identifier;
+                if (identifier.startsWith('db://')) {
+                    const resolved = await editorRequest('asset-db', 'query-uuid', identifier);
+                    if (!resolved) throw new Error(`Asset not found: ${identifier}`);
+                    uuid = resolved as string;
+                }
 
-            const metaStr = await Editor.Message.request('asset-db', 'query-asset-meta', uuid);
-            if (!metaStr) return { success: false, error: 'Could not read asset meta' };
+                const metaStr = await editorRequest('asset-db', 'query-asset-meta', uuid);
+                if (!metaStr) throw new Error('Could not read asset meta');
 
-            const meta = typeof metaStr === 'string' ? JSON.parse(metaStr) : metaStr;
+                const meta = typeof metaStr === 'string' ? JSON.parse(metaStr) : metaStr;
 
-            for (const [key, value] of Object.entries(changes)) {
-                meta[key] = value;
-            }
+                for (const [key, value] of Object.entries(changes)) {
+                    meta[key] = value;
+                }
 
-            await Editor.Message.request('asset-db', 'save-asset-meta', uuid, JSON.stringify(meta, null, 2));
-            return { success: true, message: `Texture meta updated for ${identifier}`, data: { changedKeys: Object.keys(changes) } };
-        } catch (err: any) {
-            return { success: false, error: err.message };
-        }
+                await editorRequest('asset-db', 'save-asset-meta', uuid, JSON.stringify(meta, null, 2));
+            },
+            () => ({ message: `Texture meta updated for ${identifier}`, data: { changedKeys: Object.keys(changes) } })
+        );
     }
 
     // --- Shared helpers ---
@@ -104,19 +105,20 @@ export class MaterialTools implements ToolExecutor {
     private async getAssetInfo(identifier: string): Promise<ToolResponse> {
         if (!identifier) return { success: false, error: 'url or uuid is required' };
 
-        try {
-            let uuid: string = identifier;
-            if (identifier.startsWith('db://')) {
-                const resolved = await Editor.Message.request('asset-db', 'query-uuid', identifier);
-                if (!resolved) return { success: false, error: `Asset not found: ${identifier}` };
-                uuid = resolved as string;
-            }
+        return toolCall(
+            async () => {
+                let uuid: string = identifier;
+                if (identifier.startsWith('db://')) {
+                    const resolved = await editorRequest('asset-db', 'query-uuid', identifier);
+                    if (!resolved) throw new Error(`Asset not found: ${identifier}`);
+                    uuid = resolved as string;
+                }
 
-            const info = await Editor.Message.request('asset-db', 'query-asset-info', uuid);
-            if (!info) return { success: false, error: `No info for asset: ${identifier}` };
-
-            return {
-                success: true,
+                const info: any = await editorRequest('asset-db', 'query-asset-info', uuid);
+                if (!info) throw new Error(`No info for asset: ${identifier}`);
+                return info;
+            },
+            (info: any) => ({
                 data: {
                     uuid: info.uuid,
                     name: info.name,
@@ -124,29 +126,26 @@ export class MaterialTools implements ToolExecutor {
                     type: info.type,
                     importer: info.importer
                 }
-            };
-        } catch (err: any) {
-            return { success: false, error: err.message };
-        }
+            })
+        );
     }
 
     private async listAssetsByPattern(pattern: string, folder?: string): Promise<ToolResponse> {
-        try {
-            const queryPattern = folder
-                ? `${folder}/${pattern}`.replace(/\/+/g, '/')
-                : `db://assets/${pattern}`;
+        const queryPattern = folder
+            ? `${folder}/${pattern}`.replace(/\/+/g, '/')
+            : `db://assets/${pattern}`;
 
-            const results = await Editor.Message.request('asset-db', 'query-assets', { pattern: queryPattern });
-            const assets = (results || []).map((a: any) => ({
-                uuid: a.uuid,
-                name: a.name,
-                url: a.url,
-                type: a.type
-            }));
-
-            return { success: true, data: { assets, total: assets.length } };
-        } catch (err: any) {
-            return { success: false, error: err.message };
-        }
+        return toolCall(
+            () => editorRequest<any[]>('asset-db', 'query-assets', { pattern: queryPattern }),
+            (results) => {
+                const assets = (results || []).map((a: any) => ({
+                    uuid: a.uuid,
+                    name: a.name,
+                    url: a.url,
+                    type: a.type
+                }));
+                return { data: { assets, total: assets.length } };
+            }
+        );
     }
 }

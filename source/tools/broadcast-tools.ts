@@ -119,114 +119,104 @@ export class BroadcastTools implements ToolExecutor {
     }
 
     private async getBroadcastLog(limit: number = 50, messageType?: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            let filteredLog = this.messageLog;
+        let filteredLog = this.messageLog;
 
-            if (messageType) {
-                filteredLog = this.messageLog.filter(entry => entry.message === messageType);
+        if (messageType) {
+            filteredLog = this.messageLog.filter(entry => entry.message === messageType);
+        }
+
+        const recentLog = filteredLog.slice(-limit).map(entry => ({
+            ...entry,
+            timestamp: new Date(entry.timestamp).toISOString()
+        }));
+
+        return {
+            success: true,
+            data: {
+                log: recentLog,
+                count: recentLog.length,
+                totalCount: filteredLog.length,
+                filter: messageType || 'all',
+                message: 'Broadcast log retrieved successfully'
             }
-
-            const recentLog = filteredLog.slice(-limit).map(entry => ({
-                ...entry,
-                timestamp: new Date(entry.timestamp).toISOString()
-            }));
-
-            resolve({
-                success: true,
-                data: {
-                    log: recentLog,
-                    count: recentLog.length,
-                    totalCount: filteredLog.length,
-                    filter: messageType || 'all',
-                    message: 'Broadcast log retrieved successfully'
-                }
-            });
-        });
+        };
     }
 
     private async listenBroadcast(messageType: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            try {
-                if (!this.listeners.has(messageType)) {
-                    this.addBroadcastListener(messageType);
-                    resolve({
-                        success: true,
-                        data: {
-                            messageType: messageType,
-                            message: `Started listening for broadcast: ${messageType}`
-                        }
-                    });
-                } else {
-                    resolve({
-                        success: true,
-                        data: {
-                            messageType: messageType,
-                            message: `Already listening for broadcast: ${messageType}`
-                        }
-                    });
-                }
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
+        try {
+            if (!this.listeners.has(messageType)) {
+                this.addBroadcastListener(messageType);
+                return {
+                    success: true,
+                    data: {
+                        messageType: messageType,
+                        message: `Started listening for broadcast: ${messageType}`
+                    }
+                };
+            } else {
+                return {
+                    success: true,
+                    data: {
+                        messageType: messageType,
+                        message: `Already listening for broadcast: ${messageType}`
+                    }
+                };
             }
-        });
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async stopListening(messageType: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            try {
-                if (this.listeners.has(messageType)) {
-                    this.removeBroadcastListener(messageType);
-                    resolve({
-                        success: true,
-                        data: {
-                            messageType: messageType,
-                            message: `Stopped listening for broadcast: ${messageType}`
-                        }
-                    });
-                } else {
-                    resolve({
-                        success: true,
-                        data: {
-                            messageType: messageType,
-                            message: `Was not listening for broadcast: ${messageType}`
-                        }
-                    });
-                }
-            } catch (err: any) {
-                resolve({ success: false, error: err.message });
+        try {
+            if (this.listeners.has(messageType)) {
+                this.removeBroadcastListener(messageType);
+                return {
+                    success: true,
+                    data: {
+                        messageType: messageType,
+                        message: `Stopped listening for broadcast: ${messageType}`
+                    }
+                };
+            } else {
+                return {
+                    success: true,
+                    data: {
+                        messageType: messageType,
+                        message: `Was not listening for broadcast: ${messageType}`
+                    }
+                };
             }
-        });
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async clearBroadcastLog(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const previousCount = this.messageLog.length;
-            this.messageLog = [];
-            resolve({
-                success: true,
-                data: {
-                    clearedCount: previousCount,
-                    message: 'Broadcast log cleared successfully'
-                }
-            });
-        });
+        const previousCount = this.messageLog.length;
+        this.messageLog = [];
+        return {
+            success: true,
+            data: {
+                clearedCount: previousCount,
+                message: 'Broadcast log cleared successfully'
+            }
+        };
     }
 
     private async getActiveListeners(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const activeListeners = Array.from(this.listeners.keys()).map(messageType => ({
-                messageType: messageType,
-                listenerCount: this.listeners.get(messageType)?.length || 0
-            }));
+        const activeListeners = Array.from(this.listeners.keys()).map(messageType => ({
+            messageType: messageType,
+            listenerCount: this.listeners.get(messageType)?.length || 0
+        }));
 
-            resolve({
-                success: true,
-                data: {
-                    listeners: activeListeners,
-                    count: activeListeners.length,
-                    message: 'Active listeners retrieved successfully'
-                }
-            });
-        });
+        return {
+            success: true,
+            data: {
+                listeners: activeListeners,
+                count: activeListeners.length,
+                message: 'Active listeners retrieved successfully'
+            }
+        };
     }
 }

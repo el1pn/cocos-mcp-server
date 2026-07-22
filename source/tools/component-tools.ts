@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
+import { editorRequest } from '../utils/editor-request';
 import { logger } from '../logger';
 
 export class ComponentTools implements ToolExecutor {
@@ -383,7 +384,7 @@ export class ComponentTools implements ToolExecutor {
         }
         // Try adding component directly using Editor API
         try {
-            await Editor.Message.request('scene', 'create-component', {
+            await editorRequest('scene', 'create-component', {
                 uuid: nodeUuid,
                 component: componentType
             });
@@ -431,7 +432,7 @@ export class ComponentTools implements ToolExecutor {
                 args: [nodeUuid, componentType]
             };
             try {
-                const result = await Editor.Message.request('scene', 'execute-scene-script', options);
+                const result = await editorRequest('scene', 'execute-scene-script', options);
                 return result as ToolResponse;
             } catch (err2: any) {
                 return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
@@ -456,7 +457,7 @@ export class ComponentTools implements ToolExecutor {
         }
         // 3. Remove via official API. RemoveComponentOptions.uuid is the COMPONENT instance uuid, not the node uuid.
         try {
-            await Editor.Message.request('scene', 'remove-component', {
+            await editorRequest('scene', 'remove-component', {
                 uuid: componentInstanceUuid
             });
             // 4. Query again to confirm removal
@@ -477,106 +478,108 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async getComponents(nodeUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Try querying node info directly using Editor API first
-            Editor.Message.request('scene', 'query-node', nodeUuid).then((nodeData: any) => {
-                if (nodeData && nodeData.__comps__) {
-                    const components = nodeData.__comps__.map((comp: any) => ({
-                        type: comp.__type__ || comp.cid || comp.type || 'Unknown',
-                        // query-node nests instance uuid at comp.value.uuid.value; keep older shapes as fallback.
-                        uuid: comp.value?.uuid?.value || comp.uuid?.value || comp.uuid || null,
-                        enabled: comp.enabled !== undefined ? comp.enabled : true,
-                        properties: this.extractComponentProperties(comp)
-                    }));
-
-                    resolve({
+        // Try querying node info directly using Editor API first
+        let nodeData: any;
+        try {
+            nodeData = await editorRequest('scene', 'query-node', nodeUuid);
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'getNodeInfo',
+                args: [nodeUuid]
+            };
+            try {
+                const result: any = await editorRequest('scene', 'execute-scene-script', options);
+                if (result.success) {
+                    return {
                         success: true,
-                        data: {
-                            nodeUuid: nodeUuid,
-                            components: components
-                        }
-                    });
+                        data: result.data.components
+                    };
                 } else {
-                    resolve({ success: false, error: 'Node not found or no components data' });
+                    return result;
                 }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'getNodeInfo',
-                    args: [nodeUuid]
-                };
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
 
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    if (result.success) {
-                        resolve({
-                            success: true,
-                            data: result.data.components
-                        });
-                    } else {
-                        resolve(result);
-                    }
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+        if (nodeData && nodeData.__comps__) {
+            const components = nodeData.__comps__.map((comp: any) => ({
+                type: comp.__type__ || comp.cid || comp.type || 'Unknown',
+                // query-node nests instance uuid at comp.value.uuid.value; keep older shapes as fallback.
+                uuid: comp.value?.uuid?.value || comp.uuid?.value || comp.uuid || null,
+                enabled: comp.enabled !== undefined ? comp.enabled : true,
+                properties: this.extractComponentProperties(comp)
+            }));
+
+            return {
+                success: true,
+                data: {
+                    nodeUuid: nodeUuid,
+                    components: components
+                }
+            };
+        } else {
+            return { success: false, error: 'Node not found or no components data' };
+        }
     }
 
     private async getComponentInfo(nodeUuid: string, componentType: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Try querying node info directly using Editor API first
-            Editor.Message.request('scene', 'query-node', nodeUuid).then((nodeData: any) => {
-                if (nodeData && nodeData.__comps__) {
-                    const component = nodeData.__comps__.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
-
+        // Try querying node info directly using Editor API first
+        let nodeData: any;
+        try {
+            nodeData = await editorRequest('scene', 'query-node', nodeUuid);
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'getNodeInfo',
+                args: [nodeUuid]
+            };
+            try {
+                const result: any = await editorRequest('scene', 'execute-scene-script', options);
+                if (result.success && result.data.components) {
+                    const component = result.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
                     if (component) {
-                        resolve({
+                        return {
                             success: true,
                             data: {
                                 nodeUuid: nodeUuid,
                                 componentType: componentType,
-                                enabled: component.enabled !== undefined ? component.enabled : true,
-                                properties: this.extractComponentProperties(component)
+                                ...component
                             }
-                        });
+                        };
                     } else {
-                        resolve({ success: false, error: `Component '${componentType}' not found on node` });
+                        return { success: false, error: `Component '${componentType}' not found on node` };
                     }
                 } else {
-                    resolve({ success: false, error: 'Node not found or no components data' });
+                    return { success: false, error: result.error || 'Failed to get component info' };
                 }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'getNodeInfo',
-                    args: [nodeUuid]
-                };
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
 
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    if (result.success && result.data.components) {
-                        const component = result.data.components.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
-                        if (component) {
-                            resolve({
-                                success: true,
-                                data: {
-                                    nodeUuid: nodeUuid,
-                                    componentType: componentType,
-                                    ...component
-                                }
-                            });
-                        } else {
-                            resolve({ success: false, error: `Component '${componentType}' not found on node` });
-                        }
-                    } else {
-                        resolve({ success: false, error: result.error || 'Failed to get component info' });
+        if (nodeData && nodeData.__comps__) {
+            const component = nodeData.__comps__.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
+
+            if (component) {
+                return {
+                    success: true,
+                    data: {
+                        nodeUuid: nodeUuid,
+                        componentType: componentType,
+                        enabled: component.enabled !== undefined ? component.enabled : true,
+                        properties: this.extractComponentProperties(component)
                     }
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+                };
+            } else {
+                return { success: false, error: `Component '${componentType}' not found on node` };
+            }
+        } else {
+            return { success: false, error: 'Node not found or no components data' };
+        }
     }
 
     private extractComponentProperties(component: any): Record<string, any> {
@@ -609,7 +612,7 @@ export class ComponentTools implements ToolExecutor {
             return null;
         }
         try {
-            const nodeTree = await Editor.Message.request('scene', 'query-node-tree');
+            const nodeTree = await editorRequest('scene', 'query-node-tree');
             if (!nodeTree) {
                 logger.warn('[findComponentTypeByUuid] Failed to query node tree.');
                 return null;
@@ -624,7 +627,7 @@ export class ComponentTools implements ToolExecutor {
                 }
 
                 try {
-                    const fullNodeData = await Editor.Message.request('scene', 'query-node', currentNodeInfo.uuid);
+                    const fullNodeData = await editorRequest('scene', 'query-node', currentNodeInfo.uuid);
                     if (fullNodeData && fullNodeData.__comps__) {
                         for (const comp of fullNodeData.__comps__) {
                             const compAny = comp as any; // Cast to any to access dynamic properties
@@ -943,14 +946,14 @@ export class ComponentTools implements ToolExecutor {
                         return { success: false, error: `Asset UUID(s) not found in asset database: ${missing.join(', ')}. These assets may have been deleted or moved.` };
                     }
                 } else if (propertyType === 'node' && processedValue?.uuid) {
-                    const nodeExists = await Editor.Message.request('scene', 'query-node', processedValue.uuid).then((n: any) => !!n).catch(() => false);
+                    const nodeExists = await editorRequest('scene', 'query-node', processedValue.uuid).then((n: any) => !!n).catch(() => false);
                     if (!nodeExists) {
                         return { success: false, error: `Node UUID '${processedValue.uuid}' does not exist in current scene.` };
                     }
                 }
 
                 // Step 5: Get original node data to build correct path
-                const rawNodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
+                const rawNodeData = await editorRequest('scene', 'query-node', nodeUuid);
                 if (!rawNodeData || !rawNodeData.__comps__) {
                     return {
                         success: false,
@@ -1014,7 +1017,7 @@ export class ComponentTools implements ToolExecutor {
                         assetType = 'cc.Prefab';
                     }
 
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1028,14 +1031,14 @@ export class ComponentTools implements ToolExecutor {
                     const height = Number(value.height) || 100;
 
                     // Set width first
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.width`,
                         dump: { value: width }
                     });
 
                     // Then set height
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.height`,
                         dump: { value: height }
@@ -1046,14 +1049,14 @@ export class ComponentTools implements ToolExecutor {
                     const anchorY = Number(value.y) || 0.5;
 
                     // Set anchorX first
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.anchorX`,
                         dump: { value: anchorX }
                     });
 
                     // Then set anchorY
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: `__comps__.${rawComponentIndex}.anchorY`,
                         dump: { value: anchorY }
@@ -1070,7 +1073,7 @@ export class ComponentTools implements ToolExecutor {
 
                     logger.info(`[ComponentTools] Setting color value: ${JSON.stringify(colorValue)}`);
 
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1086,7 +1089,7 @@ export class ComponentTools implements ToolExecutor {
                         z: Number(processedValue.z) || 0
                     };
 
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1101,7 +1104,7 @@ export class ComponentTools implements ToolExecutor {
                         y: Number(processedValue.y) || 0
                     };
 
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1116,7 +1119,7 @@ export class ComponentTools implements ToolExecutor {
                         height: Number(processedValue.height) || 0
                     };
 
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1127,7 +1130,7 @@ export class ComponentTools implements ToolExecutor {
                 } else if (propertyType === 'node' && processedValue && typeof processedValue === 'object' && 'uuid' in processedValue) {
                     // Special handling for node references
                     logger.info(`[ComponentTools] Setting node reference with UUID: ${processedValue.uuid}`);
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: {
@@ -1176,7 +1179,7 @@ export class ComponentTools implements ToolExecutor {
 
                     try {
                         // Get target node component info
-                        const targetNodeData = await Editor.Message.request('scene', 'query-node', targetNodeUuid);
+                        const targetNodeData = await editorRequest('scene', 'query-node', targetNodeUuid);
                         if (!targetNodeData || !targetNodeData.__comps__) {
                             throw new Error(`Target node ${targetNodeUuid} not found or has no components`);
                         }
@@ -1244,7 +1247,7 @@ export class ComponentTools implements ToolExecutor {
 
                         // Try using same format as node/asset references: {uuid: componentId}
                         // Test to see if component reference can be set correctly
-                        await Editor.Message.request('scene', 'set-property', {
+                        await editorRequest('scene', 'set-property', {
                             uuid: nodeUuid,
                             path: propertyPath,
                             dump: {
@@ -1305,7 +1308,7 @@ export class ComponentTools implements ToolExecutor {
 
                     logger.info(`[ComponentTools] Setting ${propertyType} per-index (${items.length} items, elementType=${elementType})`);
                     for (let i = 0; i < items.length; i++) {
-                        await Editor.Message.request('scene', 'set-property', {
+                        await editorRequest('scene', 'set-property', {
                             uuid: nodeUuid,
                             path: `${propertyPath}.${i}`,
                             dump: {
@@ -1316,7 +1319,7 @@ export class ComponentTools implements ToolExecutor {
                     }
                 } else {
                     // Normal property setting for non-asset properties
-                    await Editor.Message.request('scene', 'set-property', {
+                    await editorRequest('scene', 'set-property', {
                         uuid: nodeUuid,
                         path: propertyPath,
                         dump: { value: processedValue }
@@ -1331,7 +1334,7 @@ export class ComponentTools implements ToolExecutor {
                 // Check for lost properties
                 let lostProperties: string[] = [];
                 try {
-                    const afterRawData = await Editor.Message.request('scene', 'query-node', nodeUuid);
+                    const afterRawData = await editorRequest('scene', 'query-node', nodeUuid);
                     if (afterRawData?.__comps__?.[rawComponentIndex]) {
                         const afterNonNull = this.snapshotNonNullProps(afterRawData.__comps__[rawComponentIndex]);
                         lostProperties = beforeNonNull.filter((p: string) => p !== property && !afterNonNull.includes(p));
@@ -1370,7 +1373,7 @@ export class ComponentTools implements ToolExecutor {
     private async validateReferenceUuids(uuids: string[]): Promise<string[]> {
         const missing: string[] = [];
         for (const uuid of uuids) {
-            const info = await Editor.Message.request('asset-db', 'query-asset-info', uuid).catch(() => null);
+            const info = await editorRequest('asset-db', 'query-asset-info', uuid).catch(() => null);
             if (!info) missing.push(uuid);
         }
         return missing;
@@ -1400,7 +1403,7 @@ export class ComponentTools implements ToolExecutor {
         // so name-based comparison gives false negatives. Match via __scriptAsset.value.uuid instead.
         let scriptAssetUuid: string | null = null;
         try {
-            scriptAssetUuid = await Editor.Message.request('asset-db', 'query-uuid', scriptPath) as string;
+            scriptAssetUuid = await editorRequest('asset-db', 'query-uuid', scriptPath) as string;
         } catch {
             // Fallback to name-based match if uuid lookup fails.
         }
@@ -1432,7 +1435,7 @@ export class ComponentTools implements ToolExecutor {
         }
         // First try using script name directly as component type
         try {
-            await Editor.Message.request('scene', 'create-component', {
+            await editorRequest('scene', 'create-component', {
                 uuid: nodeUuid,
                 component: scriptName  // Use script name instead of UUID
             });
@@ -1472,7 +1475,7 @@ export class ComponentTools implements ToolExecutor {
                 args: [nodeUuid, scriptPath]
             };
             try {
-                const result = await Editor.Message.request('scene', 'execute-scene-script', options);
+                const result = await editorRequest('scene', 'execute-scene-script', options);
                 return result as ToolResponse;
             } catch {
                 return {

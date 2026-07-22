@@ -2,6 +2,7 @@ import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, ValidationR
 import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class DebugTools implements ToolExecutor {
     private consoleMessages: ConsoleMessage[] = [];
@@ -85,6 +86,11 @@ export class DebugTools implements ToolExecutor {
                         checkMissingAssets: {
                             type: 'boolean',
                             description: 'Check for missing asset references (validate_scene)',
+                            default: true
+                        },
+                        checkMissingScripts: {
+                            type: 'boolean',
+                            description: 'Check for components whose script failed to load (surfaces as cc.MissingScript) (validate_scene)',
                             default: true
                         },
                         checkPerformance: {
@@ -228,75 +234,69 @@ export class DebugTools implements ToolExecutor {
     }
 
     private async executeScript(script: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'execute-scene-script', {
+        return toolCall(
+            () => editorRequest('scene', 'execute-scene-script', {
                 name: 'console',
                 method: 'eval',
                 args: [script]
-            }).then((result: any) => {
-                resolve({
-                    success: true,
-                    data: {
-                        result: result,
-                        message: 'Script executed successfully'
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            }),
+            (result) => ({
+                data: {
+                    result: result,
+                    message: 'Script executed successfully'
+                }
+            })
+        );
     }
 
     private async getNodeTree(rootUuid?: string, maxDepth: number = 10): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const buildTree = async (nodeUuid: string, depth: number = 0): Promise<any> => {
-                if (depth >= maxDepth) {
-                    return { truncated: true };
-                }
-
-                try {
-                    const nodeData = await Editor.Message.request('scene', 'query-node', nodeUuid);
-
-                    const tree = {
-                        uuid: nodeData.uuid,
-                        name: nodeData.name,
-                        active: nodeData.active,
-                        components: (nodeData as any).components ? (nodeData as any).components.map((c: any) => c.__type__) : [],
-                        childCount: nodeData.children ? nodeData.children.length : 0,
-                        children: [] as any[]
-                    };
-
-                    if (nodeData.children && nodeData.children.length > 0) {
-                        for (const childId of nodeData.children) {
-                            const childTree = await buildTree(childId, depth + 1);
-                            tree.children.push(childTree);
-                        }
-                    }
-
-                    return tree;
-                } catch (err: any) {
-                    return { error: err.message };
-                }
-            };
-
-            if (rootUuid) {
-                buildTree(rootUuid).then(tree => {
-                    resolve({ success: true, data: tree });
-                });
-            } else {
-                Editor.Message.request('scene', 'query-node-tree').then(async (hierarchy: any) => {
-                    const roots = Array.isArray(hierarchy) ? hierarchy : (hierarchy?.children || []);
-                    const trees = [];
-                    for (const rootNode of roots) {
-                        const tree = await buildTree(rootNode.uuid);
-                        trees.push(tree);
-                    }
-                    resolve({ success: true, data: trees });
-                }).catch((err: Error) => {
-                    resolve({ success: false, error: err.message });
-                });
+        const buildTree = async (nodeUuid: string, depth: number = 0): Promise<any> => {
+            if (depth >= maxDepth) {
+                return { truncated: true };
             }
-        });
+
+            try {
+                const nodeData = await editorRequest<any>('scene', 'query-node', nodeUuid);
+
+                const tree = {
+                    uuid: nodeData.uuid,
+                    name: nodeData.name,
+                    active: nodeData.active,
+                    components: (nodeData as any).components ? (nodeData as any).components.map((c: any) => c.__type__) : [],
+                    childCount: nodeData.children ? nodeData.children.length : 0,
+                    children: [] as any[]
+                };
+
+                if (nodeData.children && nodeData.children.length > 0) {
+                    for (const childId of nodeData.children) {
+                        const childTree = await buildTree(childId, depth + 1);
+                        tree.children.push(childTree);
+                    }
+                }
+
+                return tree;
+            } catch (err: any) {
+                return { error: err.message };
+            }
+        };
+
+        if (rootUuid) {
+            const tree = await buildTree(rootUuid);
+            return { success: true, data: tree };
+        }
+
+        try {
+            const hierarchy: any = await editorRequest('scene', 'query-node-tree');
+            const roots = Array.isArray(hierarchy) ? hierarchy : (hierarchy?.children || []);
+            const trees = [];
+            for (const rootNode of roots) {
+                const tree = await buildTree(rootNode.uuid);
+                trees.push(tree);
+            }
+            return { success: true, data: trees };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async getPerformanceStats(): Promise<ToolResponse> {
@@ -316,7 +316,7 @@ export class DebugTools implements ToolExecutor {
         try {
             // Check for missing assets
             if (options.checkMissingAssets) {
-                const missing: any = await Editor.Message.request('scene', 'query-nodes-miss-assets');
+                const missing: any = await editorRequest('scene', 'query-nodes-miss-assets');
                 const missingList = Array.isArray(missing) ? missing : (missing?.missing || []);
                 if (missingList.length) {
                     issues.push({
@@ -330,7 +330,7 @@ export class DebugTools implements ToolExecutor {
 
             // Check for performance issues
             if (options.checkPerformance) {
-                const hierarchy: any = await Editor.Message.request('scene', 'query-node-tree');
+                const hierarchy: any = await editorRequest('scene', 'query-node-tree');
                 const roots = Array.isArray(hierarchy) ? hierarchy : (hierarchy?.children || []);
                 const nodeCount = this.countNodes(roots);
 
@@ -340,6 +340,21 @@ export class DebugTools implements ToolExecutor {
                         category: 'performance',
                         message: `High node count: ${nodeCount} nodes (recommended < 1000)`,
                         suggestion: 'Consider using object pooling or scene optimization'
+                    });
+                }
+            }
+
+            // Check for components whose script failed to load (renamed/deleted/compile error).
+            // The engine swaps such a component's runtime class to cc.MissingScript (cid 'cc.MissingScript').
+            if (options.checkMissingScripts) {
+                const missingScripts = await this.findMissingScriptComponents();
+                if (missingScripts.length) {
+                    issues.push({
+                        type: 'error',
+                        category: 'scripts',
+                        message: `Found ${missingScripts.length} component(s) with missing script`,
+                        details: missingScripts,
+                        suggestion: 'The original script asset was deleted, renamed, or failed to compile. Re-add the script or remove the component.'
                     });
                 }
             }
@@ -364,6 +379,42 @@ export class DebugTools implements ToolExecutor {
             }
         }
         return count;
+    }
+
+    private async findMissingScriptComponents(): Promise<Array<{ nodeUuid: string; nodeName: string; componentIndex: number }>> {
+        const nodeTree = await editorRequest('scene', 'query-node-tree');
+        if (!nodeTree) return [];
+
+        const nodeUuids: string[] = [];
+        const queue: any[] = [nodeTree];
+        while (queue.length > 0) {
+            const node = queue.shift();
+            if (node?.uuid) nodeUuids.push(node.uuid);
+            if (node?.children) queue.push(...node.children);
+        }
+
+        const results: Array<{ nodeUuid: string; nodeName: string; componentIndex: number }> = [];
+        const BATCH = 10;
+        for (let i = 0; i < nodeUuids.length; i += BATCH) {
+            const batch = nodeUuids.slice(i, i + BATCH);
+            const nodeDatas = await Promise.all(
+                batch.map(uuid => editorRequest('scene', 'query-node', uuid).catch(() => null))
+            );
+            for (let j = 0; j < nodeDatas.length; j++) {
+                const nodeData = nodeDatas[j] as any;
+                if (!nodeData?.__comps__) continue;
+                const nodeUuid = batch[j];
+                const nodeName = nodeData.name?.value ?? nodeData.name ?? nodeUuid;
+                nodeData.__comps__.forEach((comp: any, index: number) => {
+                    const compType = comp?.__type__ || comp?.cid || comp?.type;
+                    if (compType === 'cc.MissingScript') {
+                        results.push({ nodeUuid, nodeName: String(nodeName), componentIndex: index });
+                    }
+                });
+            }
+        }
+
+        return results;
     }
 
     private async getEditorInfo(): Promise<ToolResponse> {

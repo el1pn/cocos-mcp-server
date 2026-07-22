@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import { ToolDefinition, ToolResponse, ToolExecutor, PrefabInfo } from '../types';
 import { logger } from '../logger';
 import { validateAssetUrl } from '../utils/asset-safety';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class PrefabTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -158,24 +159,20 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async getPrefabList(folder: string = 'db://assets'): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            const pattern = folder.endsWith('/') ?
-                `${folder}**/*.prefab` : `${folder}/**/*.prefab`;
+        const pattern = folder.endsWith('/') ?
+            `${folder}**/*.prefab` : `${folder}/**/*.prefab`;
 
-            Editor.Message.request('asset-db', 'query-assets', {
-                pattern: pattern
-            }).then((results: any[]) => {
-                const prefabs: PrefabInfo[] = results.map(asset => ({
+        return toolCall(
+            () => editorRequest<any[]>('asset-db', 'query-assets', { pattern }),
+            (results) => ({
+                data: results.map((asset): PrefabInfo => ({
                     name: asset.name,
                     path: asset.url,
                     uuid: asset.uuid,
                     folder: asset.url.substring(0, asset.url.lastIndexOf('/'))
-                }));
-                resolve({ success: true, data: prefabs });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                }))
+            })
+        );
     }
 
     private async openPrefab(prefabPath: string): Promise<ToolResponse> {
@@ -183,11 +180,11 @@ export class PrefabTools implements ToolExecutor {
             return { success: false, error: 'prefabPath is required' };
         }
         try {
-            const uuid: string | null = await Editor.Message.request('asset-db', 'query-uuid', prefabPath);
+            const uuid: string | null = await editorRequest('asset-db', 'query-uuid', prefabPath);
             if (!uuid) {
                 return { success: false, error: 'Prefab not found' };
             }
-            await Editor.Message.request('scene', 'open-scene', uuid);
+            await editorRequest('scene', 'open-scene', uuid);
             return { success: true, message: `Prefab opened in edit mode: ${prefabPath}`, data: { uuid } };
         } catch (err: any) {
             return { success: false, error: err?.message ?? String(err) };
@@ -196,7 +193,7 @@ export class PrefabTools implements ToolExecutor {
 
     private async instantiatePrefab(args: any): Promise<ToolResponse> {
         try {
-            const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', args.prefabPath);
+            const assetInfo = await editorRequest('asset-db', 'query-asset-info', args.prefabPath);
             if (!assetInfo) {
                 throw new Error('Prefab not found');
             }
@@ -223,7 +220,7 @@ export class PrefabTools implements ToolExecutor {
                 };
             }
 
-            const nodeUuid = await Editor.Message.request('scene', 'create-node', createNodeOptions);
+            const nodeUuid = await editorRequest('scene', 'create-node', createNodeOptions);
             const uuid = Array.isArray(nodeUuid) ? nodeUuid[0] : nodeUuid;
 
             logger.info(`Prefab node created successfully: ${JSON.stringify({
@@ -277,7 +274,7 @@ export class PrefabTools implements ToolExecutor {
      */
     private async createPrefabViaEngine(nodeUuid: string, prefabPath: string): Promise<ToolResponse> {
         try {
-            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+            const result: any = await editorRequest('scene', 'execute-scene-script', {
                 name: 'cocos-mcp-server',
                 method: 'createPrefabFromNode',
                 args: [nodeUuid, prefabPath]
@@ -321,7 +318,7 @@ export class PrefabTools implements ToolExecutor {
     private async verifyPrefabOutput(prefabPath: string): Promise<{ isValid: boolean; issues: string[]; nodeCount: number; componentCount: number }> {
         const issues: string[] = [];
         try {
-            const diskPath = await Editor.Message.request('asset-db', 'query-path', prefabPath);
+            const diskPath = await editorRequest('asset-db', 'query-path', prefabPath);
             if (!diskPath || typeof diskPath !== 'string') {
                 issues.push(`Could not resolve disk path for ${prefabPath}`);
                 return { isValid: false, issues, nodeCount: 0, componentCount: 0 };
@@ -356,32 +353,27 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async updatePrefab(prefabPath: string, nodeUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'query-asset-info', prefabPath).then((assetInfo: any) => {
+        return toolCall(
+            async () => {
+                const assetInfo: any = await editorRequest('asset-db', 'query-asset-info', prefabPath);
                 if (!assetInfo) {
                     throw new Error('Prefab not found');
                 }
 
-                return Editor.Message.request('scene', 'apply-prefab', {
+                return editorRequest('scene', 'apply-prefab', {
                     node: nodeUuid,
                     prefab: assetInfo.uuid
                 });
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Prefab updated successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            },
+            () => ({ message: 'Prefab updated successfully' })
+        );
     }
 
     private async revertPrefab(nodeUuid: string): Promise<ToolResponse> {
         // No public "revert-prefab" message exists; delegate to the engine's
         // PrefabManager via scene-script (same channel used by createPrefabViaEngine).
         try {
-            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+            const result: any = await editorRequest('scene', 'execute-scene-script', {
                 name: 'cocos-mcp-server',
                 method: 'revertPrefabInstance',
                 args: [nodeUuid]
@@ -401,15 +393,17 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async getPrefabInfo(prefabPath: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('asset-db', 'query-asset-info', prefabPath).then((assetInfo: any) => {
+        return toolCall(
+            async () => {
+                const assetInfo: any = await editorRequest('asset-db', 'query-asset-info', prefabPath);
                 if (!assetInfo) {
                     throw new Error('Prefab not found');
                 }
 
-                return Editor.Message.request('asset-db', 'query-asset-meta', assetInfo.uuid);
-            }).then((metaInfo: any) => {
-                const info: PrefabInfo = {
+                return editorRequest('asset-db', 'query-asset-meta', assetInfo.uuid);
+            },
+            (metaInfo: any) => ({
+                data: {
                     name: metaInfo.name,
                     uuid: metaInfo.uuid,
                     path: prefabPath,
@@ -417,17 +411,14 @@ export class PrefabTools implements ToolExecutor {
                     createTime: metaInfo.createTime,
                     modifyTime: metaInfo.modifyTime,
                     dependencies: metaInfo.depends || []
-                };
-                resolve({ success: true, data: info });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                } as PrefabInfo
+            })
+        );
     }
 
     private async validatePrefab(prefabPath: string): Promise<ToolResponse> {
         try {
-            const assetInfo: any = await Editor.Message.request('asset-db', 'query-asset-info', prefabPath);
+            const assetInfo: any = await editorRequest('asset-db', 'query-asset-info', prefabPath);
             if (!assetInfo) {
                 return { success: false, error: 'Prefab file does not exist' };
             }
@@ -515,7 +506,7 @@ export class PrefabTools implements ToolExecutor {
                 return { success: false, error: err.message };
             }
 
-            const result: any = await Editor.Message.request('asset-db', 'copy-asset', validatedSource, validatedTarget, {
+            const result: any = await editorRequest('asset-db', 'copy-asset', validatedSource, validatedTarget, {
                 overwrite: false,
                 rename: true
             });
@@ -544,22 +535,21 @@ export class PrefabTools implements ToolExecutor {
     }
 
     private async restorePrefabNode(nodeUuid: string, assetUuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            (Editor.Message.request as any)('scene', 'restore-prefab', nodeUuid, assetUuid).then(() => {
-                resolve({
-                    success: true,
-                    data: {
-                        nodeUuid: nodeUuid,
-                        assetUuid: assetUuid,
-                        message: 'Prefab node restored successfully'
-                    }
-                });
-            }).catch((error: any) => {
-                resolve({
-                    success: false,
-                    error: `Failed to restore prefab node: ${error.message}`
-                });
-            });
-        });
+        try {
+            await editorRequest('scene', 'restore-prefab', nodeUuid, assetUuid);
+            return {
+                success: true,
+                data: {
+                    nodeUuid: nodeUuid,
+                    assetUuid: assetUuid,
+                    message: 'Prefab node restored successfully'
+                }
+            };
+        } catch (error: any) {
+            return {
+                success: false,
+                error: `Failed to restore prefab node: ${error.message}`
+            };
+        }
     }
 }

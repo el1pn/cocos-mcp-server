@@ -1,11 +1,12 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, SceneInfo } from '../types';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class SceneTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
         return [
             {
                 name: 'scene_management',
-                description: 'Manage scenes in the Cocos Creator project. Available actions: get_current (get current scene info), get_list (list all scenes), open (open a .scene or .prefab file by path — also works for opening prefabs in prefab-edit mode), save (save current scene/prefab), save_as (save scene as new file), create (create a new scene), close (close current scene), get_hierarchy (get scene node hierarchy).',
+                description: 'Manage scenes in the Cocos Creator project. Available actions: get_current (get current scene info), get_list (list all scenes), open (open a .scene or .prefab file by path — also works for opening prefabs in prefab-edit mode), save (save current scene/prefab), save_as (save scene as new file), create (create a new scene), close (close current scene), get_hierarchy (get scene node hierarchy). "open" and "close" fail with an unsaved-changes error if the current scene is dirty — save first, or pass discardChanges: true to proceed without saving.',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -44,6 +45,11 @@ export class SceneTools implements ToolExecutor {
                             type: 'number',
                             description: 'Maximum children per node level (optional for action: "get_hierarchy", default: 50, max: 200). Exceeding children are truncated with a summary.',
                             default: 50
+                        },
+                        discardChanges: {
+                            type: 'boolean',
+                            description: 'Discard unsaved changes in the current scene without saving (optional for actions: "open", "close", default: false). Required to proceed if the scene is dirty.',
+                            default: false
                         }
                     },
                     required: ['action']
@@ -60,7 +66,7 @@ export class SceneTools implements ToolExecutor {
             case 'get_list':
                 return await this.getSceneList();
             case 'open':
-                return await this.openScene(args.scenePath);
+                return await this.openScene(args.scenePath, !!args.discardChanges);
             case 'save':
                 return await this.saveScene();
             case 'create':
@@ -68,7 +74,7 @@ export class SceneTools implements ToolExecutor {
             case 'save_as':
                 return await this.saveSceneAs(args.path);
             case 'close':
-                return await this.closeScene();
+                return await this.closeScene(!!args.discardChanges);
             case 'get_hierarchy':
                 return await this.getSceneHierarchy(
                     args.includeComponents,
@@ -81,91 +87,74 @@ export class SceneTools implements ToolExecutor {
     }
 
     private async getCurrentScene(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Use query-node-tree directly to get scene info (this method has been verified to work)
-            Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
-                if (tree && tree.uuid) {
-                    resolve({
-                        success: true,
-                        data: {
-                            name: tree.name || 'Current Scene',
-                            uuid: tree.uuid,
-                            type: tree.type || 'cc.Scene',
-                            active: tree.active !== undefined ? tree.active : true,
-                            nodeCount: tree.children ? tree.children.length : 0
-                        }
-                    });
-                } else {
-                    resolve({ success: false, error: 'No scene data available' });
-                }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'getCurrentSceneInfo',
-                    args: []
+        try {
+            const tree: any = await editorRequest('scene', 'query-node-tree');
+            if (tree && tree.uuid) {
+                return {
+                    success: true,
+                    data: {
+                        name: tree.name || 'Current Scene',
+                        uuid: tree.uuid,
+                        type: tree.type || 'cc.Scene',
+                        active: tree.active !== undefined ? tree.active : true,
+                        nodeCount: tree.children ? tree.children.length : 0
+                    }
                 };
-
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+            }
+            return { success: false, error: 'No scene data available' };
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = { name: 'cocos-mcp-server', method: 'getCurrentSceneInfo', args: [] };
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private async getSceneList(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: query-assets API corrected with proper parameters
-            Editor.Message.request('asset-db', 'query-assets', {
-                pattern: 'db://assets/**/*.scene'
-            }).then((results: any[]) => {
-                const scenes: SceneInfo[] = results.map(asset => ({
-                    name: asset.name,
-                    path: asset.url,
-                    uuid: asset.uuid
-                }));
-                resolve({ success: true, data: scenes });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest<any[]>('asset-db', 'query-assets', { pattern: 'db://assets/**/*.scene' }),
+            (results) => ({
+                data: results.map((asset): SceneInfo => ({ name: asset.name, path: asset.url, uuid: asset.uuid }))
+            })
+        );
     }
 
-    private async openScene(scenePath: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // First get the scene's UUID
-            Editor.Message.request('asset-db', 'query-uuid', scenePath).then((uuid: string | null) => {
+    private async openScene(scenePath: string, discardChanges: boolean = false): Promise<ToolResponse> {
+        return toolCall(
+            async () => {
+                if (!discardChanges) {
+                    const dirty = await editorRequest('scene', 'query-dirty');
+                    if (dirty) {
+                        throw new Error('Scene has unsaved changes. Save first (action: "save"), or pass discardChanges: true to open without saving.');
+                    }
+                }
+
+                const uuid: string | null = await editorRequest('asset-db', 'query-uuid', scenePath);
                 if (!uuid) {
                     throw new Error('Scene not found');
                 }
 
-                // Use the correct scene API to open scene (requires UUID)
-                return Editor.Message.request('scene', 'open-scene', uuid);
-            }).then(() => {
-                resolve({ success: true, message: `Scene opened: ${scenePath}` });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                return editorRequest('scene', 'open-scene', uuid);
+            },
+            () => ({ message: `Scene opened: ${scenePath}` })
+        );
     }
 
     private async saveScene(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'save-scene').then(() => {
-                resolve({ success: true, message: 'Scene saved successfully' });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'save-scene'),
+            () => ({ message: 'Scene saved successfully' })
+        );
     }
 
     private async createScene(sceneName: string, savePath: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Ensure path ends with .scene
-            const fullPath = savePath.endsWith('.scene') ? savePath : `${savePath}/${sceneName}.scene`;
+        // Ensure path ends with .scene
+        const fullPath = savePath.endsWith('.scene') ? savePath : `${savePath}/${sceneName}.scene`;
 
+        try {
             // Use the correct Cocos Creator 3.8 scene format
             const sceneContent = JSON.stringify([
                 {
@@ -322,36 +311,33 @@ export class SceneTools implements ToolExecutor {
                 }
             ], null, 2);
 
-            Editor.Message.request('asset-db', 'create-asset', fullPath, sceneContent).then((result: any) => {
-                // Verify scene creation by checking if it exists
-                this.getSceneList().then((sceneList) => {
-                    const createdScene = sceneList.data?.find((scene: any) => scene.uuid === result.uuid);
-                    resolve({
-                        success: true,
-                        data: {
-                            uuid: result.uuid,
-                            url: result.url,
-                            name: sceneName,
-                            message: `Scene '${sceneName}' created successfully`,
-                            sceneVerified: !!createdScene
-                        },
-                        verificationData: createdScene
-                    });
-                }).catch(() => {
-                    resolve({
-                        success: true,
-                        data: {
-                            uuid: result.uuid,
-                            url: result.url,
-                            name: sceneName,
-                            message: `Scene '${sceneName}' created successfully (verification failed)`
-                        }
-                    });
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            const result: any = await editorRequest('asset-db', 'create-asset', fullPath, sceneContent);
+            // Verify scene creation by checking if it exists
+            let sceneVerified = false;
+            let verificationData: any;
+            try {
+                const sceneList = await this.getSceneList();
+                verificationData = sceneList.data?.find((scene: any) => scene.uuid === result.uuid);
+                sceneVerified = !!verificationData;
+            } catch {
+                // Non-fatal — creation already succeeded, verification is best-effort
+            }
+            return {
+                success: true,
+                data: {
+                    uuid: result.uuid,
+                    url: result.url,
+                    name: sceneName,
+                    message: sceneVerified
+                        ? `Scene '${sceneName}' created successfully`
+                        : `Scene '${sceneName}' created successfully (verification failed)`,
+                    sceneVerified
+                },
+                verificationData
+            };
+        } catch (err: any) {
+            return { success: false, error: err.message };
+        }
     }
 
     private async getSceneHierarchy(
@@ -359,35 +345,27 @@ export class SceneTools implements ToolExecutor {
         maxDepth: number = 10,
         maxChildrenPerLevel: number = 50
     ): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Try using Editor API to query scene node tree first
-            Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
-                if (tree) {
-                    const unwrapped = this.unwrapPrefabHierarchy(tree);
-                    const hierarchy = this.buildHierarchy(unwrapped, includeComponents, maxDepth, maxChildrenPerLevel, 0);
-                    resolve({
-                        success: true,
-                        data: hierarchy,
-                        instruction: `Hierarchy returned with maxDepth=${maxDepth}, maxChildrenPerLevel=${maxChildrenPerLevel}. Look for "childrenTruncated" or "depthLimitReached" flags to detect truncation. Re-request with higher limits or specific nodeUuid to explore deeper.`
-                    });
-                } else {
-                    resolve({ success: false, error: 'No scene hierarchy available' });
-                }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'getSceneHierarchy',
-                    args: [includeComponents]
+        try {
+            const tree: any = await editorRequest('scene', 'query-node-tree');
+            if (tree) {
+                const unwrapped = this.unwrapPrefabHierarchy(tree);
+                const hierarchy = this.buildHierarchy(unwrapped, includeComponents, maxDepth, maxChildrenPerLevel, 0);
+                return {
+                    success: true,
+                    data: hierarchy,
+                    instruction: `Hierarchy returned with maxDepth=${maxDepth}, maxChildrenPerLevel=${maxChildrenPerLevel}. Look for "childrenTruncated" or "depthLimitReached" flags to detect truncation. Re-request with higher limits or specific nodeUuid to explore deeper.`
                 };
-
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+            }
+            return { success: false, error: 'No scene hierarchy available' };
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = { name: 'cocos-mcp-server', method: 'getSceneHierarchy', args: [includeComponents] };
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private unwrapPrefabHierarchy(tree: any): any {
@@ -448,32 +426,25 @@ export class SceneTools implements ToolExecutor {
     }
 
     private async saveSceneAs(path: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // save-as-scene API does not accept path parameters, it opens a dialog for the user to choose
-            (Editor.Message.request as any)('scene', 'save-as-scene').then(() => {
-                resolve({
-                    success: true,
-                    data: {
-                        path: path,
-                        message: `Scene save-as dialog opened`
-                    }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        // save-as-scene API does not accept path parameters, it opens a dialog for the user to choose
+        return toolCall(
+            () => editorRequest('scene', 'save-as-scene'),
+            () => ({ data: { path, message: `Scene save-as dialog opened` } })
+        );
     }
 
-    private async closeScene(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'close-scene').then(() => {
-                resolve({
-                    success: true,
-                    message: 'Scene closed successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+    private async closeScene(discardChanges: boolean = false): Promise<ToolResponse> {
+        return toolCall(
+            async () => {
+                if (!discardChanges) {
+                    const dirty = await editorRequest('scene', 'query-dirty');
+                    if (dirty) {
+                        throw new Error('Scene has unsaved changes. Save first (action: "save"), or pass discardChanges: true to close without saving.');
+                    }
+                }
+                return editorRequest('scene', 'close-scene');
+            },
+            () => ({ message: 'Scene closed successfully' })
+        );
     }
 }

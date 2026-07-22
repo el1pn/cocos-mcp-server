@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, NodeInfo } from '../types';
 import { ComponentTools } from './component-tools';
 import { logger } from '../logger';
+import { editorRequest, toolCall } from '../utils/editor-request';
 
 export class NodeTools implements ToolExecutor {
     private componentTools = new ComponentTools();
@@ -263,7 +264,7 @@ export class NodeTools implements ToolExecutor {
             // If no parent node UUID provided, get scene root node
             if (!targetParentUuid) {
                 try {
-                    const sceneInfo = await Editor.Message.request('scene', 'query-node-tree');
+                    const sceneInfo = await editorRequest('scene', 'query-node-tree');
                     if (sceneInfo && typeof sceneInfo === 'object' && !Array.isArray(sceneInfo) && Object.prototype.hasOwnProperty.call(sceneInfo, 'uuid')) {
                         targetParentUuid = (sceneInfo as any).uuid;
                         logger.info(`No parent specified, using scene root: ${targetParentUuid}`);
@@ -271,7 +272,7 @@ export class NodeTools implements ToolExecutor {
                         targetParentUuid = sceneInfo[0].uuid;
                         logger.info(`No parent specified, using scene root: ${targetParentUuid}`);
                     } else {
-                        const currentScene = await Editor.Message.request('scene', 'query-current-scene');
+                        const currentScene: any = await editorRequest('scene', 'query-current-scene');
                         if (currentScene && currentScene.uuid) {
                             targetParentUuid = currentScene.uuid;
                         }
@@ -285,7 +286,7 @@ export class NodeTools implements ToolExecutor {
             let finalAssetUuid = args.assetUuid;
             if (args.assetPath && !finalAssetUuid) {
                 try {
-                    const assetInfo = await Editor.Message.request('asset-db', 'query-asset-info', args.assetPath);
+                    const assetInfo: any = await editorRequest('asset-db', 'query-asset-info', args.assetPath);
                     if (assetInfo && assetInfo.uuid) {
                         finalAssetUuid = assetInfo.uuid;
                         logger.info(`Asset path '${args.assetPath}' resolved to UUID: ${finalAssetUuid}`);
@@ -339,14 +340,14 @@ export class NodeTools implements ToolExecutor {
             logger.info(`Creating node with options: ${JSON.stringify(createNodeOptions)}`);
 
             // Create node
-            const nodeUuid = await Editor.Message.request('scene', 'create-node', createNodeOptions);
+            const nodeUuid: any = await editorRequest('scene', 'create-node', createNodeOptions);
             const uuid = Array.isArray(nodeUuid) ? nodeUuid[0] : nodeUuid;
 
             // Handle sibling index
             if (args.siblingIndex !== undefined && args.siblingIndex >= 0 && uuid && targetParentUuid) {
                 try {
                     await new Promise(resolve => setTimeout(resolve, 100)); // Wait for internal state update
-                    await Editor.Message.request('scene', 'set-parent', {
+                    await editorRequest('scene', 'set-parent', {
                         parent: targetParentUuid,
                         uuids: [uuid],
                         keepWorldTransform: args.keepWorldTransform || false
@@ -445,16 +446,15 @@ export class NodeTools implements ToolExecutor {
     }
 
     private async getNodeInfo(uuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'query-node', uuid).then((nodeData: any) => {
+        return toolCall(
+            async () => {
+                const nodeData: any = await editorRequest('scene', 'query-node', uuid);
                 if (!nodeData) {
-                    resolve({
-                        success: false,
-                        error: 'Node not found or invalid response'
-                    });
-                    return;
+                    throw new Error('Node not found or invalid response');
                 }
-
+                return nodeData;
+            },
+            (nodeData) => {
                 // Parse node info based on actual returned data structure
                 const info: NodeInfo = {
                     uuid: nodeData.uuid?.value || uuid,
@@ -472,96 +472,91 @@ export class NodeTools implements ToolExecutor {
                     layer: nodeData.layer?.value || 1073741824,
                     mobility: nodeData.mobility?.value || 0
                 };
-                resolve({ success: true, data: info });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                return { data: info };
+            }
+        );
     }
 
     private async findNodes(pattern: string, exactMatch: boolean = false): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: 'query-nodes-by-name' API doesn't exist in official documentation
-            // Using tree traversal as primary approach
-            Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
-                const nodes: any[] = [];
+        // Note: 'query-nodes-by-name' API doesn't exist in official documentation
+        // Using tree traversal as primary approach
+        try {
+            const tree: any = await editorRequest('scene', 'query-node-tree');
+            const nodes: any[] = [];
 
-                const searchTree = (node: any, currentPath: string = '') => {
-                    const nodePath = currentPath ? `${currentPath}/${node.name}` : node.name;
+            const searchTree = (node: any, currentPath: string = '') => {
+                const nodePath = currentPath ? `${currentPath}/${node.name}` : node.name;
 
-                    const matches = exactMatch ?
-                        node.name === pattern :
-                        node.name.toLowerCase().includes(pattern.toLowerCase());
+                const matches = exactMatch ?
+                    node.name === pattern :
+                    node.name.toLowerCase().includes(pattern.toLowerCase());
 
-                    if (matches) {
-                        nodes.push({
-                            uuid: node.uuid,
-                            name: node.name,
-                            path: nodePath
-                        });
-                    }
-
-                    if (node.children) {
-                        for (const child of node.children) {
-                            searchTree(child, nodePath);
-                        }
-                    }
-                };
-
-                if (tree) {
-                    searchTree(tree);
+                if (matches) {
+                    nodes.push({
+                        uuid: node.uuid,
+                        name: node.name,
+                        path: nodePath
+                    });
                 }
 
-                resolve({ success: true, data: nodes });
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'findNodes',
-                    args: [pattern, exactMatch]
-                };
+                if (node.children) {
+                    for (const child of node.children) {
+                        searchTree(child, nodePath);
+                    }
+                }
+            };
 
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Tree search failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+            if (tree) {
+                searchTree(tree);
+            }
+
+            return { success: true, data: nodes };
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'findNodes',
+                args: [pattern, exactMatch]
+            };
+
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Tree search failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private async findNodeByName(name: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
+        try {
             // Try using Editor API to query node tree and search first
-            Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
-                const foundNode = this.searchNodeInTree(tree, name);
-                if (foundNode) {
-                    resolve({
-                        success: true,
-                        data: {
-                            uuid: foundNode.uuid,
-                            name: foundNode.name,
-                            path: this.getNodePath(foundNode)
-                        }
-                    });
-                } else {
-                    resolve({ success: false, error: `Node '${name}' not found` });
-                }
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'findNodeByName',
-                    args: [name]
+            const tree: any = await editorRequest('scene', 'query-node-tree');
+            const foundNode = this.searchNodeInTree(tree, name);
+            if (foundNode) {
+                return {
+                    success: true,
+                    data: {
+                        uuid: foundNode.uuid,
+                        name: foundNode.name,
+                        path: this.getNodePath(foundNode)
+                    }
                 };
+            }
+            return { success: false, error: `Node '${name}' not found` };
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'findNodeByName',
+                args: [name]
+            };
 
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private searchNodeInTree(node: any, targetName: string): any {
@@ -582,53 +577,52 @@ export class NodeTools implements ToolExecutor {
     }
 
     private async getAllNodes(): Promise<ToolResponse> {
-        return new Promise((resolve) => {
+        try {
             // Try to query scene node tree
-            Editor.Message.request('scene', 'query-node-tree').then((tree: any) => {
-                const nodes: any[] = [];
+            const tree: any = await editorRequest('scene', 'query-node-tree');
+            const nodes: any[] = [];
 
-                const traverseTree = (node: any) => {
-                    nodes.push({
-                        uuid: node.uuid,
-                        name: node.name,
-                        type: node.type,
-                        active: node.active,
-                        path: this.getNodePath(node)
-                    });
+            const traverseTree = (node: any) => {
+                nodes.push({
+                    uuid: node.uuid,
+                    name: node.name,
+                    type: node.type,
+                    active: node.active,
+                    path: this.getNodePath(node)
+                });
 
-                    if (node.children) {
-                        for (const child of node.children) {
-                            traverseTree(child);
-                        }
+                if (node.children) {
+                    for (const child of node.children) {
+                        traverseTree(child);
                     }
-                };
-
-                if (tree && tree.children) {
-                    traverseTree(tree);
                 }
+            };
 
-                resolve({
-                    success: true,
-                    data: {
-                        totalNodes: nodes.length,
-                        nodes: nodes
-                    }
-                });
-            }).catch((err: Error) => {
-                // Fallback: use scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'getAllNodes',
-                    args: []
-                };
+            if (tree && tree.children) {
+                traverseTree(tree);
+            }
 
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
-            });
-        });
+            return {
+                success: true,
+                data: {
+                    totalNodes: nodes.length,
+                    nodes: nodes
+                }
+            };
+        } catch (err: any) {
+            // Fallback: use scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'getAllNodes',
+                args: []
+            };
+
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private getNodePath(node: any): string {
@@ -642,55 +636,56 @@ export class NodeTools implements ToolExecutor {
     }
 
     private async setNodeProperty(uuid: string, property: string, value: any): Promise<ToolResponse> {
-        return new Promise((resolve) => {
+        try {
             // Try to set node property directly using Editor API
-            Editor.Message.request('scene', 'set-property', {
+            await editorRequest('scene', 'set-property', {
                 uuid: uuid,
                 path: property,
                 dump: {
                     value: value
                 }
-            }).then(() => {
-                // Get comprehensive verification data including updated node info
-                this.getNodeInfo(uuid).then((nodeInfo) => {
-                    resolve({
-                        success: true,
-                        message: `Property '${property}' updated successfully`,
-                        data: {
-                            nodeUuid: uuid,
-                            property: property,
-                            newValue: value
-                        },
-                        verificationData: {
-                            nodeInfo: nodeInfo.data,
-                            changeDetails: {
-                                property: property,
-                                value: value,
-                                timestamp: new Date().toISOString()
-                            }
-                        }
-                    });
-                }).catch(() => {
-                    resolve({
-                        success: true,
-                        message: `Property '${property}' updated successfully (verification failed)`
-                    });
-                });
-            }).catch((err: Error) => {
-                // If direct setting fails, try using scene script
-                const options = {
-                    name: 'cocos-mcp-server',
-                    method: 'setNodeProperty',
-                    args: [uuid, property, value]
-                };
-
-                Editor.Message.request('scene', 'execute-scene-script', options).then((result: any) => {
-                    resolve(result);
-                }).catch((err2: Error) => {
-                    resolve({ success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` });
-                });
             });
-        });
+
+            // Get comprehensive verification data including updated node info
+            try {
+                const nodeInfo = await this.getNodeInfo(uuid);
+                return {
+                    success: true,
+                    message: `Property '${property}' updated successfully`,
+                    data: {
+                        nodeUuid: uuid,
+                        property: property,
+                        newValue: value
+                    },
+                    verificationData: {
+                        nodeInfo: nodeInfo.data,
+                        changeDetails: {
+                            property: property,
+                            value: value,
+                            timestamp: new Date().toISOString()
+                        }
+                    }
+                };
+            } catch {
+                return {
+                    success: true,
+                    message: `Property '${property}' updated successfully (verification failed)`
+                };
+            }
+        } catch (err: any) {
+            // If direct setting fails, try using scene script
+            const options = {
+                name: 'cocos-mcp-server',
+                method: 'setNodeProperty',
+                args: [uuid, property, value]
+            };
+
+            try {
+                return await editorRequest('scene', 'execute-scene-script', options);
+            } catch (err2: any) {
+                return { success: false, error: `Direct API failed: ${err.message}, Scene script failed: ${err2.message}` };
+            }
+        }
     }
 
     private async setNodeTransform(args: any): Promise<ToolResponse> {
@@ -716,7 +711,7 @@ export class NodeTools implements ToolExecutor {
                 }
 
                 updatePromises.push(
-                    Editor.Message.request('scene', 'set-property', {
+                    editorRequest('scene', 'set-property', {
                         uuid: uuid,
                         path: 'position',
                         dump: { value: normalizedPosition.value }
@@ -732,7 +727,7 @@ export class NodeTools implements ToolExecutor {
                 }
 
                 updatePromises.push(
-                    Editor.Message.request('scene', 'set-property', {
+                    editorRequest('scene', 'set-property', {
                         uuid: uuid,
                         path: 'rotation',
                         dump: { value: normalizedRotation.value }
@@ -748,7 +743,7 @@ export class NodeTools implements ToolExecutor {
                 }
 
                 updatePromises.push(
-                    Editor.Message.request('scene', 'set-property', {
+                    editorRequest('scene', 'set-property', {
                         uuid: uuid,
                         path: 'scale',
                         dump: { value: normalizedScale.value }
@@ -899,70 +894,53 @@ export class NodeTools implements ToolExecutor {
     }
 
     private async deleteNode(uuid: string): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'remove-node', { uuid: uuid }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Node deleted successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+        return toolCall(
+            () => editorRequest('scene', 'remove-node', { uuid: uuid }),
+            () => ({ message: 'Node deleted successfully' })
+        );
     }
 
     private async moveNode(nodeUuid: string, newParentUuid: string, siblingIndex: number = -1): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Use correct set-parent API instead of move-node
-            Editor.Message.request('scene', 'set-parent', {
+        // Use correct set-parent API instead of move-node
+        return toolCall(
+            () => editorRequest('scene', 'set-parent', {
                 parent: newParentUuid,
                 uuids: [nodeUuid],
                 keepWorldTransform: false
-            }).then(() => {
-                resolve({
-                    success: true,
-                    message: 'Node moved successfully'
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            }),
+            () => ({ message: 'Node moved successfully' })
+        );
     }
 
     private async renameNode(uuid: string, name: string): Promise<ToolResponse> {
         if (!uuid) return { success: false, error: 'uuid is required' };
         if (!name) return { success: false, error: 'name is required' };
-        return new Promise((resolve) => {
-            Editor.Message.request('scene', 'set-property', {
+        return toolCall(
+            () => editorRequest('scene', 'set-property', {
                 uuid,
                 path: 'name',
                 dump: { type: 'String', value: name }
-            }).then(() => {
-                resolve({ success: true, message: `Node renamed to "${name}"` });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+            }),
+            () => ({ message: `Node renamed to "${name}"` })
+        );
     }
 
     private async duplicateNode(uuid: string, includeChildren: boolean = true): Promise<ToolResponse> {
-        return new Promise((resolve) => {
-            // Note: includeChildren parameter is accepted for future use but not currently implemented
-            // Cocos `duplicate-node` returns string[] of new node UUIDs.
-            Editor.Message.request('scene', 'duplicate-node', uuid).then((result: any) => {
+        // Note: includeChildren parameter is accepted for future use but not currently implemented
+        // Cocos `duplicate-node` returns string[] of new node UUIDs.
+        return toolCall(
+            () => editorRequest<any>('scene', 'duplicate-node', uuid),
+            (result) => {
                 const newUuids: string[] = Array.isArray(result) ? result : (result?.uuid ? [result.uuid] : []);
-                resolve({
-                    success: true,
+                return {
                     data: {
                         newUuids,
                         newUuid: newUuids[0] ?? null,
                         message: 'Node duplicated successfully'
                     }
-                });
-            }).catch((err: Error) => {
-                resolve({ success: false, error: err.message });
-            });
-        });
+                };
+            }
+        );
     }
 
     private async detectNodeType(uuid: string): Promise<ToolResponse> {

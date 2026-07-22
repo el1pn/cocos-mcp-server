@@ -724,7 +724,7 @@ export class UIBuilderTools implements ToolExecutor {
             return ref;
         }
         try {
-            const uuid = await Editor.Message.request('asset-db', 'query-uuid', ref);
+            const uuid = await editorRequest('asset-db', 'query-uuid', ref);
             if (uuid) {
                 return uuid as string;
             }

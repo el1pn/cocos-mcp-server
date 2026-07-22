@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { editorRequest } from '../utils/editor-request';
 
 /**
  * Captures a clean PNG render of the currently-open scene/prefab from the editor.
@@ -118,7 +119,7 @@ export class SceneCaptureTools implements ToolExecutor {
                 opts.previewMaxHeight = args.previewMaxHeight || 540;
             }
 
-            const result: any = await Editor.Message.request('scene', 'execute-scene-script', {
+            const result: any = await editorRequest('scene', 'execute-scene-script', {
                 name: 'cocos-mcp-server',
                 method: 'captureSceneView',
                 args: [opts]
@@ -187,7 +188,7 @@ export class SceneCaptureTools implements ToolExecutor {
 
     private async queryDirty(): Promise<boolean | null> {
         try {
-            return (await Editor.Message.request('scene', 'query-dirty')) as any;
+            return (await editorRequest('scene', 'query-dirty')) as any;
         } catch (e) {
             return null;
         }
