@@ -17,6 +17,8 @@ Restart Cocos Creator, then open `Extension > Cocos MCP Server` and click **Star
 Default endpoint: `http://127.0.0.1:3000/mcp` (Streamable HTTP, with `/sse` legacy fallback). Port configurable via plugin panel or `MCP_PORT`.
 
 **Claude Code CLI:**
+
+Auto-registers into `~/.claude.json` once the project path appears under `projects` (i.e. after you've opened a `claude` session in this project at least once). If the editor's server starts before that, it keeps retrying in the background (every 5s, up to 2 minutes) so the order doesn't matter. Otherwise, register manually:
 ```
 claude mcp add --transport http cocos-creator-3x http://127.0.0.1:3000/mcp
 ```

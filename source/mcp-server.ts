@@ -2,6 +2,7 @@ import * as http from 'http';
 import * as url from 'url';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
 import { logger } from './logger';
+import { registerAllMcpClients, RetryHandle } from './mcp-clients';
 import { SceneTools } from './tools/scene-tools';
 import { NodeTools } from './tools/node-tools';
 import { ComponentTools } from './tools/component-tools';
@@ -46,6 +47,7 @@ export class MCPServer {
     private toolsList: ToolDefinition[] = [];
     private toolExecutors: Map<string, (args: any) => Promise<any>> = new Map();
     private serverInstanceId: string;
+    private mcpClientRegisterRetry: RetryHandle | null = null;
     private toolQueue: Array<{
         run: () => Promise<any>;
         resolve: (value: any) => void;
@@ -100,6 +102,8 @@ export class MCPServer {
                     logger.warn(`Original port ${this.settings.port} was in use, bound to ${port} instead`);
                 }
                 this.settings.port = port;
+                this.mcpClientRegisterRetry?.cancel();
+                this.mcpClientRegisterRetry = registerAllMcpClients(Editor.Project.path, port);
                 this.setupTools();
                 logger.success('MCP Server is ready for connections');
                 return;
@@ -1119,6 +1123,9 @@ export class MCPServer {
     }
 
     public stop(): void {
+        this.mcpClientRegisterRetry?.cancel();
+        this.mcpClientRegisterRetry = null;
+
         for (const [_sessionId, streams] of this.sessionStreams.entries()) {
             for (const [_streamId, stream] of streams.entries()) {
                 try {
@@ -1220,10 +1227,14 @@ export class MCPServer {
             }
 
             const result = await this.enqueueToolExecution(fullToolName, params);
+            // Tool executors return a ToolResponse with its own `success` field — surface
+            // that at the top level too, otherwise callers who only check the outer
+            // `success` (HTTP request succeeded) miss that the tool itself failed.
+            const toolSucceeded = result && typeof result === 'object' && 'success' in result ? result.success : true;
 
             res.writeHead(200);
             res.end(JSON.stringify({
-                success: true,
+                success: toolSucceeded,
                 tool: fullToolName,
                 result
             }));
