@@ -33,6 +33,26 @@ export const MCP_CLIENT_TARGETS: McpClientTarget[] = [CLAUDE_CODE_TARGET];
 
 export type RegisterStatus = 'registered' | 'config-missing' | 'project-unknown' | 'error';
 
+const RENAME_RETRY_DELAYS_MS = [25, 50, 100, 200, 400];
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+const renameRetrySignal = new Int32Array(new SharedArrayBuffer(4));
+
+function renameWithRetry(source: string, destination: string): void {
+    for (let attempt = 0; ; attempt++) {
+        try {
+            fs.renameSync(source, destination);
+            return;
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            const delay = RENAME_RETRY_DELAYS_MS[attempt];
+            if (!delay || !code || !RENAME_RETRY_CODES.has(code)) {
+                throw error;
+            }
+            Atomics.wait(renameRetrySignal, 0, 0, delay);
+        }
+    }
+}
+
 /** Best-effort: never throws, only logs. This is a convenience side-effect, not the source of truth. */
 export function registerMcpEntry(
     target: McpClientTarget,
@@ -61,7 +81,7 @@ export function registerMcpEntry(
         const mode = fs.statSync(target.configPath).mode;
         const tmpPath = `${target.configPath}.tmp-${process.pid}`;
         fs.writeFileSync(tmpPath, JSON.stringify(data, null, 2), { mode });
-        fs.renameSync(tmpPath, target.configPath);
+        renameWithRetry(tmpPath, target.configPath);
 
         logger.info(`[${target.name}] registered MCP entry '${target.entryKey}' -> port ${port}`);
         return 'registered';

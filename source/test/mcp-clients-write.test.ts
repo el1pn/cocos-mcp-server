@@ -73,7 +73,34 @@ withTempConfig({ projects: { '/proj/a': {} } }, 0o600, (configPath) => {
     assert.strictEqual(mode, 0o600);
 });
 
-// 5. missing / invalid JSON file -> no throw, file not created
+// 5. transient rename lock -> retries and registers
+withTempConfig({ projects: { '/proj/a': {} } }, 0o600, (configPath) => {
+    const originalRenameSync = fs.renameSync;
+    let calls = 0;
+    (fs as any).renameSync = (source: string, destination: string) => {
+        calls++;
+        if (calls < 3) {
+            const error = new Error('file is locked') as NodeJS.ErrnoException;
+            error.code = 'EPERM';
+            throw error;
+        }
+        originalRenameSync(source, destination);
+    };
+
+    try {
+        assert.strictEqual(registerMcpEntry(makeTarget(configPath), '/proj/a', 3000), 'registered');
+        assert.strictEqual(calls, 3);
+        const data = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+        assert.deepStrictEqual(data.projects['/proj/a'].mcpServers['cocos-creator-3x'], {
+            type: 'http',
+            url: 'http://127.0.0.1:3000/mcp',
+        });
+    } finally {
+        (fs as any).renameSync = originalRenameSync;
+    }
+});
+
+// 6. missing / invalid JSON file -> no throw, file not created
 {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-clients-test-'));
     const missingPath = path.join(dir, 'does-not-exist.json');
