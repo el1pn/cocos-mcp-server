@@ -65,18 +65,26 @@ export class DebugTools implements ToolExecutor {
             },
             {
                 name: 'debug_inspect',
-                description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info.',
+                description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info, probe_cce_api.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'Action to perform',
-                            enum: ['get_node_tree', 'get_performance_stats', 'validate_scene', 'get_editor_info']
+                            enum: ['get_node_tree', 'get_performance_stats', 'validate_scene', 'get_editor_info', 'probe_cce_api']
                         },
                         rootUuid: {
                             type: 'string',
                             description: 'Root node UUID (action: get_node_tree, optional, uses scene root if not provided)'
+                        },
+                        namespace: {
+                            type: 'string',
+                            description: 'Internal cce.<namespace> engine manager to list methods for, e.g. "Prefab", "Node", "Scene" (probe_cce_api, optional, default "Prefab")'
+                        },
+                        nodeUuid: {
+                            type: 'string',
+                            description: 'Node UUID to inspect for a live PrefabInfo link (probe_cce_api, optional)'
                         },
                         maxDepth: {
                             type: 'number',
@@ -180,6 +188,8 @@ export class DebugTools implements ToolExecutor {
                         return await this.validateScene(args);
                     case 'get_editor_info':
                         return await this.getEditorInfo();
+                    case 'probe_cce_api':
+                        return await this.probeCceApi(args.namespace, args.nodeUuid);
                     default:
                         throw new Error(`Unknown action: ${args.action}`);
                 }
@@ -245,6 +255,20 @@ export class DebugTools implements ToolExecutor {
                     result: result,
                     message: 'Script executed successfully'
                 }
+            })
+        );
+    }
+
+    private async probeCceApi(namespace?: string, nodeUuid?: string): Promise<ToolResponse> {
+        return toolCall(
+            () => editorRequest('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'probeCceApi',
+                args: [namespace, nodeUuid]
+            }),
+            (result: any) => ({
+                data: result?.data ?? result,
+                message: 'cce API probe complete'
             })
         );
     }

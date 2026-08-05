@@ -722,7 +722,73 @@ export const methods: { [key: string]: (...any: any) => any } = {
             if (cleanup) { cleanup(); }
             return { success: false, error: error?.message || String(error) };
         }
+    },
+
+    /**
+     * Diagnostic probe for the internal `cce.<namespace>` engine managers (e.g. Prefab,
+     * Node, Scene) that aren't exposed via the normal Editor.Message protocol. Reports
+     * which methods exist on the given namespace (undocumented, varies by Creator build),
+     * plus optionally a live node's raw `_prefab` (PrefabInfo) state. Read-only; makes no
+     * scene changes. Originally written to investigate the "instantiate loses _prefab
+     * link" bug — kept generic so it can be reused for other cce.* investigations.
+     */
+    probeCceApi(namespace: string = 'Prefab', nodeUuid?: string) {
+        try {
+            const mgr = (globalThis as any).cce?.[namespace];
+            const methods = mgr
+                ? Object.getOwnPropertyNames(mgr)
+                    .concat(Object.getOwnPropertyNames(Object.getPrototypeOf(mgr) || {}))
+                    .filter((k, i, a) => a.indexOf(k) === i && typeof mgr[k] === 'function')
+                    .sort()
+                : null;
+
+            let nodeInfo: any = null;
+            if (nodeUuid) {
+                const { director } = require('cc');
+                const scene = director.getScene();
+                const node = scene ? findNodeDeep(scene, nodeUuid) : null;
+                if (!node) {
+                    nodeInfo = { found: false };
+                } else {
+                    const pi = node._prefab;
+                    nodeInfo = {
+                        found: true,
+                        name: node.name,
+                        hasPrefabInfo: !!pi,
+                        prefabInfo: pi ? {
+                            fileId: pi.fileId,
+                            hasRoot: !!pi.root,
+                            rootIsSelf: pi.root === node,
+                            assetUuid: pi.asset?._uuid ?? pi.asset?.uuid ?? null,
+                            instanceFileId: pi.instance?.fileId ?? null,
+                            hasInstance: !!pi.instance
+                        } : null
+                    };
+                }
+            }
+
+            return {
+                success: true,
+                data: {
+                    cceAvailable: !!(globalThis as any).cce,
+                    namespace,
+                    namespaceAvailable: !!mgr,
+                    methods,
+                    nodeInfo
+                }
+            };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
     }
+
+    // NOTE: cce.Prefab.linkNodeWithPrefabAsset looked like the fix for the missing
+    // _prefab link (see probeCceApi above), but calling it standalone makes the node
+    // vanish from scene serialization entirely — worse than the original bug. It's
+    // apparently meant to be used internally alongside other bookkeeping the engine does
+    // when a prefab is dragged in (onAddNode, etc.), not called on its own. Do not wire
+    // this up again without reproducing what the Editor UI's drag-and-drop path actually
+    // does end-to-end.
 };
 
 /** Recursively find a node by UUID anywhere under root (getChildByUuid is not recursive). */
