@@ -732,7 +732,10 @@ export const methods: { [key: string]: (...any: any) => any } = {
      * scene changes. Originally written to investigate the "instantiate loses _prefab
      * link" bug — kept generic so it can be reused for other cce.* investigations.
      */
-    probeCceApi(namespace: string = 'Prefab', nodeUuid?: string) {
+    probeCceApi(namespace?: string | null, nodeUuid?: string | null) {
+        // execute-scene-script serializes args through JSON, turning `undefined` into `null`,
+        // so a default parameter (`= 'Prefab'`) never kicks in — normalize explicitly instead.
+        namespace = namespace || 'Prefab';
         try {
             const mgr = (globalThis as any).cce?.[namespace];
             const methods = mgr
