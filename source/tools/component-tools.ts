@@ -57,6 +57,11 @@ export class ComponentTools implements ToolExecutor {
                             description: 'Component category filter (used by "get_available" action)',
                             enum: ['all', 'renderer', 'ui', 'physics', 'animation', 'audio'],
                             default: 'all'
+                        },
+                        verbose: {
+                            type: 'boolean',
+                            description: 'For "get_all"/"get_info": when true, return full property metadata (default, type, readonly, visible, tooltip, etc.). Default false returns a slim shape ({value, type} per property) to avoid huge payloads. Use get_info with verbose=true when you need full metadata for a single component.',
+                            default: false
                         }
                     },
                     required: ['action']
@@ -178,9 +183,9 @@ export class ComponentTools implements ToolExecutor {
                 const action = args.action;
                 switch (action) {
                     case 'get_all':
-                        return await this.getComponents(args.nodeUuid);
+                        return await this.getComponents(args.nodeUuid, args.verbose === true);
                     case 'get_info':
-                        return await this.getComponentInfo(args.nodeUuid, args.componentType);
+                        return await this.getComponentInfo(args.nodeUuid, args.componentType, args.verbose === true);
                     case 'get_available':
                         return await this.getAvailableComponents(args.category);
                     default:
@@ -477,7 +482,7 @@ export class ComponentTools implements ToolExecutor {
         }
     }
 
-    private async getComponents(nodeUuid: string): Promise<ToolResponse> {
+    private async getComponents(nodeUuid: string, verbose: boolean = false): Promise<ToolResponse> {
         // Try querying node info directly using Editor API first
         let nodeData: any;
         try {
@@ -505,13 +510,16 @@ export class ComponentTools implements ToolExecutor {
         }
 
         if (nodeData && nodeData.__comps__) {
-            const components = nodeData.__comps__.map((comp: any) => ({
-                type: comp.__type__ || comp.cid || comp.type || 'Unknown',
-                // query-node nests instance uuid at comp.value.uuid.value; keep older shapes as fallback.
-                uuid: comp.value?.uuid?.value || comp.uuid?.value || comp.uuid || null,
-                enabled: comp.enabled !== undefined ? comp.enabled : true,
-                properties: this.extractComponentProperties(comp)
-            }));
+            const components = nodeData.__comps__.map((comp: any) => {
+                const properties = this.extractComponentProperties(comp);
+                return {
+                    type: comp.__type__ || comp.cid || comp.type || 'Unknown',
+                    // query-node nests instance uuid at comp.value.uuid.value; keep older shapes as fallback.
+                    uuid: comp.value?.uuid?.value || comp.uuid?.value || comp.uuid || null,
+                    enabled: comp.enabled !== undefined ? comp.enabled : true,
+                    properties: verbose ? properties : this.slimProperties(properties)
+                };
+            });
 
             return {
                 success: true,
@@ -525,7 +533,7 @@ export class ComponentTools implements ToolExecutor {
         }
     }
 
-    private async getComponentInfo(nodeUuid: string, componentType: string): Promise<ToolResponse> {
+    private async getComponentInfo(nodeUuid: string, componentType: string, verbose: boolean = false): Promise<ToolResponse> {
         // Try querying node info directly using Editor API first
         let nodeData: any;
         try {
@@ -565,13 +573,14 @@ export class ComponentTools implements ToolExecutor {
             const component = nodeData.__comps__.find((comp: any) => ComponentTools.componentMatches(comp, componentType));
 
             if (component) {
+                const properties = this.extractComponentProperties(component);
                 return {
                     success: true,
                     data: {
                         nodeUuid: nodeUuid,
                         componentType: componentType,
                         enabled: component.enabled !== undefined ? component.enabled : true,
-                        properties: this.extractComponentProperties(component)
+                        properties: verbose ? properties : this.slimProperties(properties)
                     }
                 };
             } else {
@@ -580,6 +589,45 @@ export class ComponentTools implements ToolExecutor {
         } else {
             return { success: false, error: 'Node not found or no components data' };
         }
+    }
+
+    /**
+     * Reduce a full editor-dump property map to a slim shape.
+     * The editor returns each property as a wrapper like
+     * { value, default, type, readonly, visible, displayName, tooltip, extends, ... }.
+     * Slim mode keeps only the actual value (recursively unwrapping nested wrappers)
+     * plus the declared type when non-primitive, dropping the metadata that bloats payloads.
+     */
+    private slimProperties(properties: Record<string, any>): Record<string, any> {
+        const slim: Record<string, any> = {};
+        for (const key in properties) {
+            slim[key] = this.slimValue(properties[key]);
+        }
+        return slim;
+    }
+
+    private slimValue(v: any): any {
+        if (v === null || typeof v !== 'object') {
+            return v;
+        }
+        if (Array.isArray(v)) {
+            return v.map(item => this.slimValue(item));
+        }
+        // Editor wrapper: has an own `value` field alongside metadata keys.
+        if ('value' in v) {
+            const inner = this.slimValue(v.value);
+            // For object references (assets/nodes), the type carries meaning; keep it.
+            if (inner !== null && typeof inner === 'object' && v.type && typeof v.type === 'string') {
+                return { value: inner, type: v.type };
+            }
+            return inner;
+        }
+        // Plain nested object without a wrapper: recurse into its fields.
+        const out: Record<string, any> = {};
+        for (const k in v) {
+            out[k] = this.slimValue(v[k]);
+        }
+        return out;
     }
 
     private extractComponentProperties(component: any): Record<string, any> {
