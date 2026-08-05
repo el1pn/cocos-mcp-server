@@ -890,9 +890,15 @@ export class MCPServer {
                     }
                     // structuredContent (MCP spec rev 2025-06-18): same payload as a validated object,
                     // for clients that skip parsing the text block and read structuredContent instead.
-                    result = { content, structuredContent: toolResultText };
+                    // isError (MCP spec): tool-level failures are reported in the result with isError:true,
+                    // NOT as a JSON-RPC error, so the client/model can see and react to the failure.
+                    result = { content, structuredContent: toolResultText, isError: toolResultText?.success === false };
                     break;
                 }
+                case 'ping':
+                    // MCP spec: ping request must return an empty result.
+                    result = {};
+                    break;
                 case 'resources/list':
                     result = { resources: this.getResourcesList() };
                     break;
@@ -909,8 +915,10 @@ export class MCPServer {
                     result = {
                         protocolVersion: context?.protocolVersion || MCPServer.DEFAULT_PROTOCOL_VERSION,
                         capabilities: {
-                            tools: {},
-                            resources: {}
+                            // listChanged/subscribe declared false: the tool set is static and
+                            // resource subscriptions are not implemented, so no notifications are sent.
+                            tools: { listChanged: false },
+                            resources: { subscribe: false, listChanged: false }
                         },
                         serverInfo: {
                             name: 'cocos-mcp-server',
