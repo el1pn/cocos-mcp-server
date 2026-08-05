@@ -343,6 +343,17 @@ export class NodeTools implements ToolExecutor {
             const nodeUuid: any = await editorRequest('scene', 'create-node', createNodeOptions);
             const uuid = Array.isArray(nodeUuid) ? nodeUuid[0] : nodeUuid;
 
+            // KNOWN LIMITATION: create-node with assetUuid copies the prefab's node
+            // structure but does not link the instance back to the source prefab asset
+            // (_prefab stays unset after save). scene.restore-prefab only resets an
+            // EXISTING link, so it can't help here, and cce.Prefab.linkNodeWithPrefabAsset
+            // called directly makes the node vanish from scene serialization entirely
+            // (worse than the original bug) — it's meant to be used internally alongside
+            // other bookkeeping (onAddNode, etc.), not called standalone. Until a safe
+            // fix is found, the instance keeps working at runtime; re-sync with the
+            // source prefab after editing it in the Editor UI must be done manually
+            // (unlink/relink via the Editor UI), not through this tool.
+
             // Handle sibling index
             if (args.siblingIndex !== undefined && args.siblingIndex >= 0 && uuid && targetParentUuid) {
                 try {
