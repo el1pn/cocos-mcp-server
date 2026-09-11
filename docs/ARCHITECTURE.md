@@ -24,7 +24,7 @@ Cocos MCP Server is a Cocos Creator 3.8+ editor extension that exposes an MCP (M
                         │  │               └─ GET  /api/tools    │  │
                         │  │               │                     │  │
                         │  │          ┌────┴────┐                │  │
-                        │  │          │  Tools  │ (41 tools)     │  │
+                        │  │          │  Tools  │ (38 tools)     │  │
                         │  │          └────┬────┘                │  │
                         │  │               │                     │  │
                         │  │          Editor.Message.request()   │  │
@@ -76,11 +76,14 @@ source/
 │   └── index.ts            # All shared interfaces
 ├── utils/
 │   ├── asset-safety.ts     # Atomic asset creation pipeline (ensure dirs, create, refresh)
-│   └── asset-utils.ts      # Texture2D → SpriteFrame UUID auto-conversion
+│   ├── asset-utils.ts      # Texture2D → SpriteFrame UUID auto-conversion
+│   ├── editor-request.ts   # Editor.Message wrapper with timeout; toolCall() response helper
+│   └── node-resolver.ts    # Resolve UUID / path / name to a node UUID
 ├── tools/                  # Tool implementations (ToolExecutor pattern)
 │   ├── scene-tools.ts
 │   ├── scene-advanced-tools.ts
 │   ├── scene-view-tools.ts
+│   ├── scene-capture-tools.ts
 │   ├── node-tools.ts
 │   ├── component-tools.ts
 │   ├── prefab-tools.ts
@@ -89,16 +92,17 @@ source/
 │   ├── debug-tools.ts
 │   ├── preferences-tools.ts
 │   ├── server-tools.ts
-│   ├── broadcast-tools.ts
 │   ├── reference-image-tools.ts
+│   ├── knowledge-tools.ts
+│   ├── animation-tools.ts
 │   ├── validation-tools.ts
 │   ├── batch-tools.ts
 │   ├── search-tools.ts
 │   ├── editor-tools.ts
-│   ├── animation-tools.ts
+│   ├── ui-builder-tools.ts
 │   └── material-tools.ts
 └── panels/
-    └── default/index.ts    # Vue 3 panel: Server tab, Tools tab, Tester tab
+    └── default/index.ts    # Vanilla DOM panel using native Cocos UI elements
 ```
 
 ## Tool Architecture
@@ -147,50 +151,48 @@ MCPServer.initializeTools()
         └── toolExecutors.set()    → maps name → executor function
 ```
 
-### Tool Inventory (41 tools)
+### Tool Inventory (38 tools across 21 executors)
 
-| Category | Tool | Actions |
-|----------|------|---------|
+| Category | Tool | Key Actions |
+|---|---|---|
 | Scene | `scene_management` | `get_current`, `get_list`, `open`, `save`, `save_as`, `create`, `close`, `get_hierarchy` |
 | | `scene_state` | `query_dirty`, `query_ready`, `query_classes`, `query_components` |
 | | `scene_undo` | `begin_recording`, `cancel_recording`, `snapshot`, `abort_snapshot` |
-| Node | `node_lifecycle` | `create`, `delete`, `duplicate`, `move` |
+| | `scene_screenshot` | `capture_scene`, `capture_camera`, `capture_node` — returns an inline image + world<->pixel `mapping` |
+| Scene View | `scene_view` | `get_state`, `set_gizmo_tool`, `set_pivot`, `set_coordinate`, `set_2d`, `set_grid`, `focus`, `align_with_node` |
+| Node | `node_lifecycle` | `create`, `delete`, `duplicate`, `move`, `rename` |
 | | `node_query` | `get_info`, `find_by_name`, `find_by_pattern`, `get_all`, `detect_type` |
 | | `node_transform` | `set_transform`, `set_property` |
-| | `node_clipboard` | `copy`, `paste`, `cut` |
 | | `node_advanced` | `reset_property`, `reset_transform`, `reset_component`, `restore_prefab`, `move_array_element`, `remove_array_element` |
 | Component | `component_manage` | `add`, `remove`, `attach_script` |
 | | `component_query` | `get_all`, `get_info`, `get_available` |
 | | `set_component_property` | (direct property setting) |
-| Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update`, `duplicate` |
-| | `prefab_query` | `get_list`, `load`, `get_info`, `validate` |
+| | `ui_apply_responsive_defaults` | (widget/layout defaults for UI nodes) |
+| Knowledge | `knowledge_query` | `list_component_types`, `describe_component`, `list_classes`, `has_script`, `list_enum`, `list_layers` |
+| Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update`, `duplicate`, `open` |
+| | `prefab_query` | `get_list`, `get_info`, `validate` |
 | | `prefab_instance` | `revert`, `restore` |
+| UI Builder | `ui_build_from_spec` | (builds a node tree from a semantic UI spec) |
+| Reference Image | `reference_image` | `add`, `remove`, `switch`, `set_transform`, `query` |
+| Animation | `animation_query` | `list_clips`, `get_clip`, `get_state`, `get_properties`, `get_current` — read-only |
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name`, `get_details`, `query_path`, `query_uuid`, `query_url` |
 | | `asset_crud` | `create`, `copy`, `move`, `delete`, `save`, `reimport`, `import`, `refresh` |
-| | `asset_advanced` | `save_meta`, `generate_url`, `get_dependencies`, `export_manifest`, `open_external` |
-| | `asset_batch` | `batch_import`, `batch_delete`, `compress_textures`, `get_unused` |
+| | `asset_advanced` | `generate_url`, `get_dependencies` |
+| | `asset_batch` | `batch_import`, `batch_delete`, `get_unused` |
+| Material | `material_manage` | `get_info`, `get_material_list`, `get_texture_list`, `get_shader_list`, `update_texture_meta` |
 | Project | `project_info` | `get_info`, `get_settings` |
-| | `project_build` | `run`, `build`, `get_build_settings`, `open_build_panel`, `check_builder_status` |
-| | `project_preview` | `start_preview`, `stop_preview` |
+| | `project_build` | `get_build_settings`, `open_build_panel`, `check_builder_status` |
 | Debug | `debug_console` | `get_logs`, `clear`, `execute_script` |
-| | `debug_inspect` | `get_node_tree`, `get_performance`, `validate_scene` |
+| | `debug_inspect` | `get_node_tree`, `validate_scene`, `probe_cce_api` |
 | | `debug_logs` | `get_file_info`, `get_logs`, `search_logs` |
-| Scene View | `gizmo_tool` | `change_tool`, `change_pivot`, `change_coordinate`, `query_tool`, `query_pivot`, `query_coordinate` |
-| | `scene_view` | `change_2d_3d`, `query_2d_3d`, `set_grid`, `query_grid`, `set_icon_3d`, `query_icon_3d`, `set_icon_size`, `query_icon_size`, `reset` |
-| | `scene_camera` | `focus_on_nodes`, `align_with_view`, `align_view_with_node` |
 | Preferences | `preferences_config` | `get`, `set`, `get_all`, `reset`, `open_settings` |
 | | `preferences_io` | `export`, `import` |
-| Reference Image | `reference_image_manage` | `add`, `remove`, `clear_all`, `list`, `switch`, `query_current`, `refresh`, `query_config` |
-| | `reference_image_transform` | `set_data`, `set_opacity`, `set_position`, `set_scale` |
-| Material | `material_manage` | `create_material`, `create_shader`, `get_info`, `get_material_list`, `get_texture_list`, `get_shader_list`, `update_texture_meta` |
-| Animation | `manage_animation` | `get_clips`, `get_state`, `play`, `stop`, `pause`, `resume` |
 | Search | `search_project` | `content`, `file_name`, `dir_name` |
 | Editor | `editor_actions` | `execute_menu`, `apply_text_edits`, `find_references` |
 | Execute | `execute_method` | `component_method`, `scene_script`, `sync_prefab` |
-| Batch | `batch_execute` | (runs array of `{tool, args}` sequentially, max 20) |
+| Batch | `batch_execute` | (runs array of `{tool, args}` sequentially, max 20; `stopOnError`, `rollbackOnError`) |
 | Server | `server_info` | `get_status`, `get_network`, `check_connectivity` |
-| Broadcast | `broadcast` | `send`, `listen`, `stop`, `get_log`, `clear_log`, `get_listeners` |
-| Validation | `validation` | `validate_json`, `format_json` |
+| Validation | `validation` | `validate_json`, `safe_string`, `format_request` |
 
 ## Request Flow
 
@@ -301,13 +303,12 @@ Hooked into `component-tools.ts` for `spriteFrame` property type.
 
 ## Panel UI
 
-Vue 3 app with 3 tabs:
+Vanilla DOM using native Cocos UI elements (`ui-button`, `ui-input`, …) — no framework:
 
-| Tab | Purpose |
-|-----|---------|
+| Section | Purpose |
+|---------|---------|
 | **Server** | Start/stop server, port/autoStart/debug settings, connection URL |
-| **Tools** | Enable/disable tools per category, save/load configurations (max 5 slots) |
-| **Tester** | Select tool from dropdown, auto-prefill args from schema, execute, view JSON result with timing |
+| **Tools** | Enable/disable tools per category |
 
 ## Cocos Creator 3.8.x API Reference
 
@@ -331,3 +332,33 @@ All editor interactions use `Editor.Message.request()`:
 | | `scene`, `save-scene` | |
 | | `scene`, `execute-scene-script` | `({name, method, args})` → runs in renderer |
 | Selection | `Editor.Selection.getSelected(type)` | Synchronous, `type` = `'node'` or `'asset'` |
+
+### Undocumented argument shapes
+
+These messages are public API but their argument shapes are documented nowhere.
+Each was confirmed against a running 3.8.8 editor; several fail *silently* when
+called wrongly, so change them only with a live editor to verify against.
+
+| Message | Shape | Failure mode if wrong |
+|---------|-------|----------------------|
+| `reference-image`, `add-image` | `([fsPath, ...])` — array of absolute **filesystem** paths, not `db://` urls | A bare string is iterated character by character, registering one bogus entry per character |
+| `reference-image`, `remove-image` | `([fsPath, ...])` — array, same as add | A number throws `a is not iterable`; a bare string works only because strings are iterable |
+| `reference-image`, `switch-image` | `(fsPath)` — single string | — |
+| `reference-image`, `set-image-data` | `(key, value)` — two positional args, **one field per call**; fields are `x`, `y`, `sx`, `sy`, `opacity` | An object of fields is accepted and silently ignored |
+| `scene`, `query-enum-list-with-path` | `(enumName)` — the **bare** name, e.g. `Overflow` | A qualified path like `cc.Label.Overflow` returns `null` |
+
+Two lookups that simply do not exist, despite their names suggesting otherwise:
+
+- `scene`/`query-classes` and `scene`/`query-components` return **names only** — no
+  property information. A component's property schema has to be read from the
+  engine's class metadata inside the scene script (`describeClass` in `scene.ts`).
+- There is no `console` scene script in 3.8.x. Evaluating a snippet in the scene
+  process goes through this extension's own `evalScript` method.
+
+### Node UUIDs come in two forms
+
+Assets use the dashed form (`8f3c1d24-6b0a-...`), but **scene nodes report a
+compressed 22-character base64 UUID** (`cb+IZEFoRLnIr4qCPyF+VK`). Anything that
+recognises a UUID must accept both — matching only the dashed form makes every
+node round-trip fail, and the failure is easy to miss because a rejected UUID
+falls through to a node-name lookup and reports "no node found with that name".

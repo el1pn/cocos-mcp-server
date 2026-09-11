@@ -1,6 +1,6 @@
 # Cocos Creator MCP Server
 
-MCP server plugin for Cocos Creator 3.8+. Lets AI assistants (Claude, Cursor, VS Code) control the editor via 41 action-based tools.
+MCP server plugin for Cocos Creator 3.8+. Lets AI assistants (Claude, Cursor, VS Code) control the editor via 38 action-based tools.
 
 ## Installation
 
@@ -55,6 +55,8 @@ All tools use an `action` parameter:
 { "tool": "node_lifecycle", "arguments": { "action": "create", "name": "Player", "nodeType": "2DNode" } }
 ```
 
+Node parameters accept a UUID, a path (`"Canvas/Panel/Button"`), or a unique node name — no separate lookup call needed. An ambiguous name is rejected with the matching paths listed.
+
 | Category | Tool | Key Actions |
 |----------|------|-------------|
 | Scene | `scene_management` | `get_current`, `open`, `save`, `create`, `get_hierarchy` |
@@ -67,9 +69,13 @@ All tools use an `action` parameter:
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name` |
 | | `asset_crud` | `create`, `copy`, `move`, `delete`, `save` |
 | UI Builder | `ui_build_from_spec` | declarative UI tree from a UISpec JSON |
-| Project | `project_build` | `run`, `build`, `get_build_settings` |
-| Material | `material_manage` | `create_material`, `create_shader`, `get_info`, `update_texture_meta` |
-| Animation | `manage_animation` | `get_clips`, `play`, `stop`, `pause` |
+| Knowledge | `knowledge_query` | `describe_component`, `list_component_types`, `list_classes` |
+| Scene View | `scene_view` | `set_gizmo_tool`, `set_2d`, `set_grid`, `focus`, `align_with_node` |
+| | `scene_screenshot` | `capture_scene`, `capture_camera`, `capture_node` |
+| Reference Image | `reference_image` | `add`, `switch`, `set_transform`, `query` |
+| Project | `project_build` | `get_build_settings`, `open_build_panel` |
+| Material | `material_manage` | `get_info`, `get_material_list`, `update_texture_meta` |
+| Animation | `animation_query` | `list_clips`, `get_clip`, `get_state` (read-only) |
 | Search | `search_project` | `content`, `file_name`, `dir_name` |
 | Editor | `editor_actions` | `execute_menu`, `apply_text_edits`, `find_references` |
 | Batch | `batch_execute` | run multiple tools sequentially in one call |

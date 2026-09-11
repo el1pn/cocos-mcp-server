@@ -52,10 +52,16 @@ export class ValidationTools implements ToolExecutor {
                     case 'format_request':
                         return await this.formatMcpRequest(args.toolName, args.arguments);
                     default:
-                        throw new Error(`Unknown action: ${args.action}`);
+                        // Returning rather than throwing: a throw becomes JSON-RPC
+                        // -32603, while a returned failure maps to MCP `isError` and
+                        // is visible to batch_execute.
+                        return {
+                            success: false,
+                            error: `Unknown action '${args.action}' for validation. Valid actions: validate_json, safe_string, format_request`
+                        };
                 }
             default:
-                throw new Error(`Unknown tool: ${toolName}`);
+                return { success: false, error: `Unknown tool: ${toolName}` };
         }
     }
 

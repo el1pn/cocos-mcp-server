@@ -1,4 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { editorRequest } from '../utils/editor-request';
+import { resolveNodeUuid } from '../utils/node-resolver';
 
 export class BatchTools implements ToolExecutor {
     private static readonly MAX_OPERATIONS = 20;
@@ -42,6 +44,11 @@ export class BatchTools implements ToolExecutor {
                             type: 'boolean',
                             description: 'If true, stop executing remaining operations on first error (default: false)',
                             default: false
+                        },
+                        rollbackOnError: {
+                            type: 'boolean',
+                            description: 'If true, restore the transform/active state of affected nodes when an operation fails. Implies stopOnError. Cannot undo node creation/deletion, component changes, or asset writes (default: false)',
+                            default: false
                         }
                     },
                     required: ['operations']
@@ -52,7 +59,10 @@ export class BatchTools implements ToolExecutor {
 
     async execute(_toolName: string, args: any): Promise<ToolResponse> {
         const operations: Array<{ tool: string; args: any }> = args.operations;
-        const stopOnError: boolean = args.stopOnError ?? false;
+        const rollbackOnError: boolean = args.rollbackOnError ?? false;
+        // Rolling back only makes sense if execution stops at the failure — continuing
+        // past it would keep mutating nodes the snapshot no longer describes.
+        const stopOnError: boolean = (args.stopOnError ?? false) || rollbackOnError;
 
         if (!Array.isArray(operations) || operations.length === 0) {
             return { success: false, error: 'operations must be a non-empty array' };
@@ -68,10 +78,36 @@ export class BatchTools implements ToolExecutor {
         const results: Array<{ tool: string; result?: any; error?: string }> = [];
         let hasError = false;
 
+        let snapshot: any = null;
+        let snapshotError: string | undefined;
+        if (rollbackOnError) {
+            const taken = await this.takeSnapshot(operations);
+            snapshot = taken.snapshot;
+            snapshotError = taken.error;
+            if (snapshotError) {
+                return {
+                    success: false,
+                    error: `Could not snapshot nodes for rollback: ${snapshotError}`,
+                    instruction: 'Retry without rollbackOnError to run the batch unprotected.'
+                };
+            }
+        }
+
         for (let i = 0; i < operations.length; i++) {
             const op = operations[i];
             try {
                 const result = await this.executorFn(op.tool, op.args);
+                // Tools signal failure by returning { success: false } rather than throwing
+                // (that maps to MCP `isError`), so a returned failure must count as an error
+                // here too — otherwise stopOnError never fires and the batch reports success.
+                if (result && result.success === false) {
+                    hasError = true;
+                    results.push({ tool: op.tool, result, error: result.error || 'Tool reported failure' });
+                    if (stopOnError) {
+                        break;
+                    }
+                    continue;
+                }
                 results.push({ tool: op.tool, result });
             } catch (err: any) {
                 hasError = true;
@@ -82,17 +118,87 @@ export class BatchTools implements ToolExecutor {
             }
         }
 
+        let rollback: any;
+        if (hasError && rollbackOnError && snapshot) {
+            rollback = await this.restoreSnapshot(snapshot);
+        }
+
         return {
             success: !hasError,
             data: {
                 results,
                 completed: results.length,
                 total: operations.length,
-                stoppedEarly: stopOnError && hasError
+                stoppedEarly: stopOnError && hasError,
+                rollback
             },
             message: hasError
-                ? `Batch completed with errors: ${results.filter(r => r.error).length}/${results.length} failed`
+                ? `Batch completed with errors: ${results.filter(r => r.error).length}/${results.length} failed${rollback ? `; rollback ${rollback.restored} node(s)` : ''}`
                 : `Batch completed successfully: ${results.length} operations`
         };
+    }
+
+    /**
+     * Collect node references from the operations' args and snapshot their state.
+     * Only node-addressing fields are considered; a batch that touches no node
+     * snapshots nothing and rollback becomes a no-op.
+     */
+    private async takeSnapshot(operations: Array<{ tool: string; args: any }>): Promise<{ snapshot?: any; error?: string }> {
+        const NODE_FIELDS = ['uuid', 'nodeUuid', 'parentUuid', 'newParentUuid'];
+        const refs = new Set<string>();
+
+        for (const op of operations) {
+            for (const field of NODE_FIELDS) {
+                const value = op.args?.[field];
+                if (typeof value === 'string' && value) refs.add(value);
+            }
+        }
+
+        if (refs.size === 0) {
+            return { snapshot: { nodes: [] } };
+        }
+
+        const uuids: string[] = [];
+        for (const ref of refs) {
+            try {
+                uuids.push(await resolveNodeUuid(ref));
+            } catch {
+                // A reference that doesn't resolve yet (e.g. a node this batch will
+                // create) simply has no prior state to restore.
+            }
+        }
+
+        try {
+            const result: any = await editorRequest('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'snapshotNodes',
+                args: [uuids]
+            });
+            if (!result?.success) {
+                return { error: result?.error || 'snapshotNodes failed' };
+            }
+            return { snapshot: result.data };
+        } catch (err: any) {
+            return { error: err?.message || String(err) };
+        }
+    }
+
+    private async restoreSnapshot(snapshot: any): Promise<any> {
+        try {
+            const result: any = await editorRequest('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'restoreNodes',
+                args: [snapshot]
+            });
+            return {
+                attempted: true,
+                succeeded: !!result?.success,
+                restored: result?.data?.restored?.length ?? 0,
+                missing: result?.data?.missing ?? [],
+                error: result?.error
+            };
+        } catch (err: any) {
+            return { attempted: true, succeeded: false, restored: 0, error: err?.message || String(err) };
+        }
     }
 }

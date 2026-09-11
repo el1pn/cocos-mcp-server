@@ -1,3 +1,4 @@
+import { randomBytes } from 'crypto';
 import * as http from 'http';
 import * as url from 'url';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
@@ -18,6 +19,12 @@ import { EditorTools } from './tools/editor-tools';
 import { MaterialTools } from './tools/material-tools';
 import { UIBuilderTools } from './tools/ui-builder-tools';
 import { SceneCaptureTools } from './tools/scene-capture-tools';
+import { KnowledgeTools } from './tools/knowledge-tools';
+import { ReferenceImageTools } from './tools/reference-image-tools';
+import { SceneViewTools } from './tools/scene-view-tools';
+import { AnimationTools } from './tools/animation-tools';
+import { SearchTools } from './tools/search-tools';
+import { ValidationTools } from './tools/validation-tools';
 
 export class MCPServer {
     private static readonly MAX_REQUEST_BODY_BYTES = 5 * 1024 * 1024;
@@ -55,9 +62,17 @@ export class MCPServer {
     }> = [];
     private activeToolCount = 0;
 
+    private static createUuid(): string {
+        const bytes = randomBytes(16);
+        bytes[6] = (bytes[6] & 0x0f) | 0x40;
+        bytes[8] = (bytes[8] & 0x3f) | 0x80;
+        const hex = bytes.toString('hex');
+        return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
+    }
+
     constructor(settings: MCPServerSettings) {
         this.settings = settings;
-        this.serverInstanceId = crypto.randomUUID();
+        this.serverInstanceId = MCPServer.createUuid();
         this.initializeTools();
     }
 
@@ -79,6 +94,12 @@ export class MCPServer {
             this.tools.material = new MaterialTools();
             this.tools.uiBuilder = new UIBuilderTools();
             this.tools.sceneCapture = new SceneCaptureTools();
+            this.tools.knowledge = new KnowledgeTools();
+            this.tools.referenceImage = new ReferenceImageTools();
+            this.tools.sceneView = new SceneViewTools();
+            this.tools.animation = new AnimationTools();
+            this.tools.search = new SearchTools();
+            this.tools.validation = new ValidationTools();
             logger.success('Tools initialized successfully');
         } catch (error) {
             logger.error(`Error initializing tools: ${error}`);
@@ -365,7 +386,7 @@ export class MCPServer {
         res.setHeader(MCPServer.SESSION_HEADER, session.id);
         res.writeHead(200);
 
-        const streamId = crypto.randomUUID();
+        const streamId = MCPServer.createUuid();
         const sessionStreamSet = this.sessionStreams.get(session.id) || new Map<string, http.ServerResponse>();
         sessionStreamSet.set(streamId, res);
         this.sessionStreams.set(session.id, sessionStreamSet);
@@ -461,7 +482,7 @@ export class MCPServer {
     }
 
     private handleSSEConnection(req: http.IncomingMessage, res: http.ServerResponse): void {
-        const clientId = crypto.randomUUID();
+        const clientId = MCPServer.createUuid();
         this.setupSSEHeaders(res);
         res.writeHead(200);
 
@@ -724,7 +745,7 @@ export class MCPServer {
                         return;
                     }
 
-                    const sessionId = crypto.randomUUID();
+                    const sessionId = MCPServer.createUuid();
                     const response = await this.handleMessage(message, { protocolVersion });
                     const isQueueFull = response.error?.code === -32029;
                     if (!response.error) {

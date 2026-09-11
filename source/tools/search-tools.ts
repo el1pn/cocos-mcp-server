@@ -52,6 +52,13 @@ export class SearchTools implements ToolExecutor {
     }
 
     async execute(_toolName: string, args: any): Promise<ToolResponse> {
+        // Every action needs a query; without this check a missing one surfaces as
+        // "Invalid regex: Cannot read properties of undefined", which says nothing
+        // about the actual mistake.
+        if (typeof args?.query !== 'string' || args.query === '') {
+            return { success: false, error: `query is required for '${args?.action}' and must be a non-empty string` };
+        }
+
         switch (args.action) {
             case 'content':
                 return await this.searchContent(args);

@@ -375,52 +375,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
     },
 
     /**
-     * Control animation on a node (play/stop/pause/resume)
-     */
-    controlAnimation(nodeUuid: string, command: string, clipName?: string) {
-        try {
-            const { director, js, Animation } = require('cc');
-            const scene = director.getScene();
-            if (!scene) {
-                return { success: false, error: 'No active scene' };
-            }
-
-            const node = scene.getChildByUuid(nodeUuid);
-            if (!node) {
-                return { success: false, error: `Node with UUID ${nodeUuid} not found` };
-            }
-
-            const anim = node.getComponent(Animation);
-            if (!anim) {
-                return { success: false, error: 'No Animation component found on node' };
-            }
-
-            switch (command) {
-                case 'play':
-                    if (clipName) {
-                        anim.play(clipName);
-                    } else {
-                        anim.play();
-                    }
-                    return { success: true, message: `Animation play: ${clipName || 'default'}` };
-                case 'stop':
-                    anim.stop();
-                    return { success: true, message: 'Animation stopped' };
-                case 'pause':
-                    anim.pause();
-                    return { success: true, message: 'Animation paused' };
-                case 'resume':
-                    anim.resume();
-                    return { success: true, message: 'Animation resumed' };
-                default:
-                    return { success: false, error: `Unknown animation command: ${command}` };
-            }
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    },
-
-    /**
      * Set component property
      */
     setComponentProperty(nodeUuid: string, componentType: string, property: string, value: any) {
@@ -792,6 +746,264 @@ export const methods: { [key: string]: (...any: any) => any } = {
     // when a prefab is dragged in (onAddNode, etc.), not called on its own. Do not wire
     // this up again without reproducing what the Editor UI's drag-and-drop path actually
     // does end-to-end.
+    ,
+    /**
+     * Evaluate a snippet inside the scene process, where `cc` and the live scene
+     * graph are reachable.
+     *
+     * The previous implementation targeted a `console` scene script that no longer
+     * exists in 3.8.x, so every call failed with "Scenario scripts do not exist".
+     * The snippet runs as an async function body, so it may use `await` and must
+     * `return` whatever it wants back.
+     *
+     * ponytail: the return value is JSON-serialised across the process boundary,
+     * so engine objects come back as plain data. Non-serialisable results degrade
+     * to their string form rather than failing the call.
+     */
+    async evalScript(script?: string | null) {
+        try {
+            if (!script) {
+                return { success: false, error: 'script is required' };
+            }
+            const cc = require('cc');
+            const AsyncFunction = Object.getPrototypeOf(async function () { /* noop */ }).constructor;
+            const fn = new AsyncFunction('cc', script);
+            const result = await fn(cc);
+            try {
+                // Round-trip to surface non-serialisable values here rather than
+                // as an opaque IPC failure.
+                JSON.stringify(result);
+                return { success: true, data: { result } };
+            } catch {
+                return { success: true, data: { result: String(result) } };
+            }
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    },
+    /**
+     * Read the property schema of a component class straight from the engine's
+     * class metadata.
+     *
+     * `scene/query-classes` and `scene/query-components` return names only — no
+     * property information at all — so a schema lookup has to reach into the
+     * registered class here in the renderer, where `cc` is loaded.
+     *
+     * The serialised field list alone is not enough: the engine stores `cc.Label`
+     * text as `_string` and exposes it as the `string` accessor, and a caller has
+     * to write the accessor name. So the accessors declared on the prototype chain
+     * are merged in, and a backing field whose accessor is present is dropped.
+     *
+     * ponytail: reports attributes the engine records (type, default, visible,
+     * range, enum options). An accessor carrying no editor attributes is still
+     * listed, just with fewer fields filled in.
+     */
+    describeClass(className?: string | null) {
+        try {
+            const cc = require('cc');
+            const name = className || '';
+            if (!name) {
+                return { success: false, error: 'className is required' };
+            }
+
+            const ctor = cc.js?.getClassByName ? cc.js.getClassByName(name) : undefined;
+            if (!ctor) {
+                return { success: false, error: `Class '${name}' is not registered in the engine` };
+            }
+
+            const attrs = cc.CCClass?.Attr?.getClassAttrs ? cc.CCClass.Attr.getClassAttrs(ctor) : null;
+            const describe = (prop: string, extra: Record<string, any>, fallbackKey?: string) => {
+                // Attributes are split across the two keys: the accessor carries
+                // `visible`/`displayOrder`, its backing field carries `default`.
+                // Read the accessor first and fill the gaps from the field.
+                const read = (suffix: string) => {
+                    if (!attrs) return undefined;
+                    const own = attrs[`${prop}$_$${suffix}`];
+                    if (own !== undefined) return own;
+                    return fallbackKey ? attrs[`${fallbackKey}$_$${suffix}`] : undefined;
+                };
+                const ctorAttr = read('ctor');
+                const enumList = read('enumList');
+                const rawDefault = read('default');
+                // A default is sometimes an anonymous factory function (cc.Color and
+                // friends). The engine object it builds does not survive the JSON hop
+                // and the function itself is nameless, so call it once and report the
+                // constructor name as the type.
+                const isFactory = typeof rawDefault === 'function';
+                let factoryType: string | undefined;
+                if (isFactory) {
+                    try {
+                        factoryType = rawDefault()?.constructor?.name;
+                    } catch {
+                        // A factory needing arguments or engine state just yields no type.
+                    }
+                }
+                const def = isFactory ? undefined : rawDefault;
+
+                // The engine only records an explicit `type` for enums and object
+                // references; a plain string/number/boolean has none, so infer it
+                // from the default value rather than reporting nothing.
+                const inferred = isFactory
+                    ? factoryType
+                    : def === null || def === undefined
+                        ? undefined
+                        : Array.isArray(def) ? 'Array' : typeof def;
+                return {
+                    name: prop,
+                    type: read('type') ?? (ctorAttr && ctorAttr.name) ?? inferred,
+                    default: def,
+                    visible: read('visible'),
+                    readonly: read('readonly'),
+                    tooltip: read('tooltip'),
+                    range: read('range'),
+                    // Enum options come back as {name, value} rows; keep just the
+                    // names so the payload stays small.
+                    enumOptions: Array.isArray(enumList)
+                        ? enumList.map((e: any) => e?.name).filter(Boolean)
+                        : undefined,
+                    ...extra
+                };
+            };
+
+            // Public accessors walked off the prototype chain — these are the names
+            // a caller actually writes.
+            const accessors = new Map<string, { settable: boolean }>();
+            let proto = ctor.prototype;
+            while (proto && proto !== Object.prototype) {
+                for (const key of Object.getOwnPropertyNames(proto)) {
+                    if (key === 'constructor' || key.startsWith('_') || accessors.has(key)) continue;
+                    const desc = Object.getOwnPropertyDescriptor(proto, key);
+                    if (desc && desc.get) {
+                        accessors.set(key, { settable: !!desc.set });
+                    }
+                }
+                proto = Object.getPrototypeOf(proto);
+            }
+
+            // Serialised fields. A backing field is skipped when its accessor is
+            // present, so `_string` does not shadow `string`.
+            const fields: string[] = (ctor as any).__values__ || [];
+            const shadowed = new Set(
+                fields.filter((f: string) => f.startsWith('_') && accessors.has(f.slice(1)))
+            );
+            const properties = fields
+                .filter((f: string) => !shadowed.has(f))
+                .map((f: string) => describe(f, { serialized: true }));
+
+            for (const [key, info] of accessors) {
+                const backing = `_${key}`;
+                properties.push(
+                    describe(
+                        key,
+                        { accessor: true, readonly: !info.settable },
+                        shadowed.has(backing) ? backing : undefined
+                    )
+                );
+            }
+
+            return {
+                success: true,
+                data: {
+                    name,
+                    extends: Object.getPrototypeOf(ctor)?.name || undefined,
+                    propertyCount: properties.length,
+                    properties
+                }
+            };
+        } catch (error: any) {
+            return { success: false, error: error?.message || String(error) };
+        }
+    },
+    /**
+     * Capture the transform/visibility state of the given nodes so a failed batch
+     * can be undone. The editor exposes no undo message, so this is a deliberately
+     * narrow hand-rolled substitute.
+     *
+     * ponytail: records transform, active flag and name only — enough to undo the
+     * property writes a batch typically makes. It cannot restore created or deleted
+     * nodes, component add/remove, or asset writes. To cover those, snapshot the
+     * serialized subtree instead and re-instantiate on restore.
+     */
+    snapshotNodes(uuids?: string[] | null) {
+        try {
+            const { director } = require('cc');
+            const scene = director.getScene();
+            if (!scene) {
+                return { success: false, error: 'No active scene' };
+            }
+
+            const list = uuids || [];
+            const nodes: any[] = [];
+            const missing: string[] = [];
+
+            for (const uuid of list) {
+                const node = findNodeDeep(scene, uuid);
+                if (!node) {
+                    missing.push(uuid);
+                    continue;
+                }
+                nodes.push({
+                    uuid: node.uuid,
+                    name: node.name,
+                    active: node.active,
+                    position: { x: node.position.x, y: node.position.y, z: node.position.z },
+                    rotation: { x: node.eulerAngles.x, y: node.eulerAngles.y, z: node.eulerAngles.z },
+                    scale: { x: node.scale.x, y: node.scale.y, z: node.scale.z },
+                    parentUuid: node.parent ? node.parent.uuid : null,
+                    siblingIndex: typeof node.getSiblingIndex === 'function' ? node.getSiblingIndex() : null
+                });
+            }
+
+            return { success: true, data: { nodes, missing, capturedAt: Date.now() } };
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    },
+
+    /**
+     * Restore a snapshot produced by snapshotNodes. Nodes that no longer exist are
+     * reported rather than silently skipped, since that means the rollback is partial.
+     */
+    restoreNodes(snapshot?: any) {
+        try {
+            const { director, Vec3 } = require('cc');
+            const scene = director.getScene();
+            if (!scene) {
+                return { success: false, error: 'No active scene' };
+            }
+
+            const nodes = (snapshot && snapshot.nodes) || [];
+            const restored: string[] = [];
+            const missing: string[] = [];
+
+            for (const saved of nodes) {
+                const node = findNodeDeep(scene, saved.uuid);
+                if (!node) {
+                    missing.push(saved.uuid);
+                    continue;
+                }
+                node.name = saved.name;
+                node.active = saved.active;
+                node.setPosition(new Vec3(saved.position.x, saved.position.y, saved.position.z));
+                node.setRotationFromEuler(saved.rotation.x, saved.rotation.y, saved.rotation.z);
+                node.setScale(new Vec3(saved.scale.x, saved.scale.y, saved.scale.z));
+                if (saved.siblingIndex !== null && typeof node.setSiblingIndex === 'function') {
+                    node.setSiblingIndex(saved.siblingIndex);
+                }
+                restored.push(saved.uuid);
+            }
+
+            return {
+                success: missing.length === 0,
+                data: { restored, missing },
+                error: missing.length > 0
+                    ? `Rollback incomplete: ${missing.length} node(s) no longer exist and were not restored`
+                    : undefined
+            };
+        } catch (error: any) {
+            return { success: false, error: error.message };
+        }
+    }
 };
 
 /** Recursively find a node by UUID anywhere under root (getChildByUuid is not recursive). */

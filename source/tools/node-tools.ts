@@ -2,6 +2,7 @@ import { ToolDefinition, ToolResponse, ToolExecutor, NodeInfo } from '../types';
 import { ComponentTools } from './component-tools';
 import { logger } from '../logger';
 import { editorRequest, toolCall } from '../utils/editor-request';
+import { resolveNodeUuid } from '../utils/node-resolver';
 
 export class NodeTools implements ToolExecutor {
     private componentTools = new ComponentTools();
@@ -24,11 +25,11 @@ export class NodeTools implements ToolExecutor {
                         },
                         uuid: {
                             type: 'string',
-                            description: "Node UUID. Required for 'delete', 'duplicate', and 'rename' actions."
+                            description: "Node UUID, path (\"Canvas/Panel/Button\"), or unique name. Required for 'delete', 'duplicate', and 'rename' actions."
                         },
                         parentUuid: {
                             type: 'string',
-                            description: "Parent node UUID (create). Strongly recommended — omit only to create at scene root."
+                            description: "Parent node UUID, path, or unique name (create). Strongly recommended — omit only to create at scene root."
                         },
                         nodeType: {
                             type: 'string',
@@ -101,11 +102,11 @@ export class NodeTools implements ToolExecutor {
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: "Node UUID to move. Required for 'move'."
+                            description: "Node UUID, path, or unique name to move. Required for 'move'."
                         },
                         newParentUuid: {
                             type: 'string',
-                            description: "New parent node UUID. Required for 'move'."
+                            description: "New parent node UUID, path, or unique name. Required for 'move'."
                         }
                     },
                     required: ['action']
@@ -207,7 +208,35 @@ export class NodeTools implements ToolExecutor {
         ];
     }
 
+    /**
+     * Resolve node-reference fields (UUID, path, or name) to UUIDs in place.
+     * Returns an error response if any reference is missing or ambiguous, so the
+     * caller can surface it instead of writing to the wrong node.
+     */
+    private async resolveNodeRefs(args: any, fields: string[]): Promise<ToolResponse | null> {
+        for (const field of fields) {
+            const ref = args[field];
+            if (ref === undefined || ref === null || ref === '') continue;
+            try {
+                args[field] = await resolveNodeUuid(ref);
+            } catch (err: any) {
+                return { success: false, error: `${field}: ${err.message}` };
+            }
+        }
+        return null;
+    }
+
     async execute(toolName: string, args: any): Promise<ToolResponse> {
+        const refFields: Record<string, string[]> = {
+            node_lifecycle: ['uuid', 'parentUuid', 'nodeUuid', 'newParentUuid'],
+            node_query: ['uuid'],
+            node_transform: ['uuid']
+        };
+        if (refFields[toolName]) {
+            const refError = await this.resolveNodeRefs(args, refFields[toolName]);
+            if (refError) return refError;
+        }
+
         switch (toolName) {
             case 'node_lifecycle': {
                 const action = args.action;
@@ -523,18 +552,7 @@ export class NodeTools implements ToolExecutor {
 
             return { success: true, data: nodes };
         } catch (err: any) {
-            // Fallback: use scene script
-            const options = {
-                name: 'cocos-mcp-server',
-                method: 'findNodes',
-                args: [pattern, exactMatch]
-            };
-
-            try {
-                return await editorRequest('scene', 'execute-scene-script', options);
-            } catch (err2: any) {
-                return { success: false, error: `Tree search failed: ${err.message}, Scene script failed: ${err2.message}` };
-            }
+            return { success: false, error: `Tree search failed: ${err.message}` };
         }
     }
 

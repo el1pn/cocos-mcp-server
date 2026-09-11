@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
 import { editorRequest } from '../utils/editor-request';
+import { resolveNodeUuid } from '../utils/node-resolver';
 import { logger } from '../logger';
 
 export class ComponentTools implements ToolExecutor {
@@ -19,7 +20,7 @@ export class ComponentTools implements ToolExecutor {
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Target node UUID. REQUIRED for all actions. Use get_all_nodes or find_node_by_name to get the UUID of the desired node.'
+                            description: 'Target node UUID, path ("Canvas/Panel/Button"), or unique name. REQUIRED for all actions.'
                         },
                         componentType: {
                             type: 'string',
@@ -46,7 +47,7 @@ export class ComponentTools implements ToolExecutor {
                         },
                         nodeUuid: {
                             type: 'string',
-                            description: 'Node UUID (required for "get_all" and "get_info" actions)'
+                            description: 'Node UUID, path, or unique name (required for "get_all" and "get_info" actions)'
                         },
                         componentType: {
                             type: 'string',
@@ -75,7 +76,7 @@ export class ComponentTools implements ToolExecutor {
                     properties: {
                         nodeUuid: {
                             type: 'string',
-                            description: 'Target node UUID - Must specify the node to operate on'
+                            description: 'Target node UUID, path, or unique name - Must specify the node to operate on'
                         },
                         componentType: {
                             type: 'string',
@@ -125,7 +126,7 @@ export class ComponentTools implements ToolExecutor {
                     properties: {
                         nodeUuid: {
                             type: 'string',
-                            description: 'Target node UUID'
+                            description: 'Target node UUID, path, or unique name'
                         },
                         preset: {
                             type: 'string',
@@ -165,6 +166,16 @@ export class ComponentTools implements ToolExecutor {
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
+        // Every tool here addresses a node by `nodeUuid`; accept a path or unique
+        // name there too so callers don't need a separate lookup call first.
+        if (args?.nodeUuid) {
+            try {
+                args.nodeUuid = await resolveNodeUuid(args.nodeUuid);
+            } catch (err: any) {
+                return { success: false, error: `nodeUuid: ${err.message}` };
+            }
+        }
+
         switch (toolName) {
             case 'component_manage': {
                 const action = args.action;
@@ -1516,22 +1527,11 @@ export class ComponentTools implements ToolExecutor {
                 };
             }
         } catch (err: any) {
-            // Fallback: use scene script
-            const options = {
-                name: 'cocos-mcp-server',
-                method: 'attachScript',
-                args: [nodeUuid, scriptPath]
+            return {
+                success: false,
+                error: `Failed to attach script '${scriptName}': ${err.message}`,
+                instruction: 'Please ensure the script is properly compiled and exported as a Component class. You can also manually attach the script through the Properties panel in the editor.'
             };
-            try {
-                const result = await editorRequest('scene', 'execute-scene-script', options);
-                return result as ToolResponse;
-            } catch {
-                return {
-                    success: false,
-                    error: `Failed to attach script '${scriptName}': ${err.message}`,
-                    instruction: 'Please ensure the script is properly compiled and exported as a Component class. You can also manually attach the script through the Properties panel in the editor.'
-                };
-            }
         }
     }
 

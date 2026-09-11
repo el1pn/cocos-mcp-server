@@ -244,18 +244,17 @@ export class DebugTools implements ToolExecutor {
     }
 
     private async executeScript(script: string): Promise<ToolResponse> {
+        // Runs in this extension's own scene script — the built-in `console` scene
+        // script it used to target does not exist in 3.8.x.
         return toolCall(
-            () => editorRequest('scene', 'execute-scene-script', {
-                name: 'console',
-                method: 'eval',
+            () => editorRequest<any>('scene', 'execute-scene-script', {
+                name: 'cocos-mcp-server',
+                method: 'evalScript',
                 args: [script]
             }),
-            (result) => ({
-                data: {
-                    result: result,
-                    message: 'Script executed successfully'
-                }
-            })
+            (result) => (result?.success
+                ? { data: { result: result.data?.result, message: 'Script executed successfully' } }
+                : { success: false, error: result?.error || 'Script execution failed' })
         );
     }
 
