@@ -219,37 +219,108 @@ export class SceneAdvancedTools implements ToolExecutor {
     }
 
     private async resetNodeProperty(uuid: string, path: string): Promise<ToolResponse> {
+        // `reset-property` returns true for a path that does not exist and throws
+        // an opaque "Cannot read properties of undefined (reading 'indexOf')" for
+        // node.name. Check the dump first so both cases report what is wrong.
+        const dump: any = await editorRequest('scene', 'query-node', uuid);
+        if (!dump) {
+            return { success: false, error: `Node '${uuid}' not found` };
+        }
+        // Editor paths skip the descriptor wrapper: "position.x" addresses
+        // dump.position.value.x, and "__comps__.0.enabled" the component's
+        // .value.enabled. Step through .value whenever the key is not direct.
+        const prop = path.split('.').reduce((acc: any, key) => {
+            if (acc === undefined || acc === null) return undefined;
+            if (acc[key] !== undefined) return acc[key];
+            return acc.value?.[key];
+        }, dump);
+        if (prop === undefined) {
+            const available = Object.keys(dump).filter(k => !k.startsWith('__')).join(', ');
+            return { success: false, error: `Property '${path}' does not exist on this node. Available: ${available}` };
+        }
+        // Only a top-level node property carries a `default` that says whether a
+        // reset means anything. node.name and node.active have none: the engine
+        // still answers true but writes "" / false, which is a clobber, not a
+        // reset. Nested leaves (position.x, __comps__.0.enabled) are shaped
+        // differently and do reset correctly, so the check stays at depth 1.
+        const isTopLevel = !path.includes('.');
+        if (isTopLevel && (prop?.default === null || prop?.default === undefined)) {
+            return { success: false, error: `Property '${path}' has no default value to reset to. Set it explicitly with node_transform set_property.` };
+        }
+
+        return this.editorEdit(
+            'reset-property',
+            { uuid, path, dump: { value: null } },
+            `Property '${path}' reset to default value`,
+            `Could not reset '${path}' on '${uuid}'.`
+        );
+    }
+
+    /**
+     * Run an editor message that reports failure by *returning* false rather than
+     * throwing — reset-property, reset-node and both array operations all do.
+     * `toolCall` alone treats any non-throwing result as success, so a wrong path
+     * or uuid came back as "moved successfully".
+     *
+     * `reset-component` is deliberately not routed through here: it returns null
+     * whether it worked or not, so its caller validates the uuid up front instead.
+     */
+    private async editorEdit(
+        action: string,
+        payload: any,
+        message: string,
+        failure: string
+    ): Promise<ToolResponse> {
         return toolCall(
-            () => editorRequest('scene', 'reset-property', { uuid, path, dump: { value: null } }),
-            () => ({ message: `Property '${path}' reset to default value` })
+            () => editorRequest('scene', action as any, payload),
+            (result) => {
+                if (result === false || result === null || result === undefined) {
+                    throw new Error(failure);
+                }
+                return { message };
+            }
         );
     }
 
     private async moveArrayElement(uuid: string, path: string, target: number, offset: number): Promise<ToolResponse> {
-        return toolCall(
-            () => editorRequest('scene', 'move-array-element', { uuid, path, target, offset }),
-            () => ({ message: `Array element at index ${target} moved by ${offset}` })
+        return this.editorEdit(
+            'move-array-element',
+            { uuid, path, target, offset },
+            `Array element at index ${target} moved by ${offset}`,
+            `Could not move element in '${path}' on '${uuid}'. Check that the path names an array property and the node/component uuid is correct.`
         );
     }
 
     private async removeArrayElement(uuid: string, path: string, index: number): Promise<ToolResponse> {
-        return toolCall(
-            () => editorRequest('scene', 'remove-array-element', { uuid, path, index }),
-            () => ({ message: `Array element at index ${index} removed` })
+        return this.editorEdit(
+            'remove-array-element',
+            { uuid, path, index },
+            `Array element at index ${index} removed`,
+            `Could not remove element from '${path}' on '${uuid}'. Check that the path names an array property and the node/component uuid is correct.`
         );
     }
 
     private async resetNodeTransform(uuid: string): Promise<ToolResponse> {
-        return toolCall(
-            () => editorRequest('scene', 'reset-node', { uuid }),
-            () => ({ message: 'Node transform reset to default' })
+        return this.editorEdit(
+            'reset-node',
+            { uuid },
+            'Node transform reset to default',
+            `Could not reset transform on '${uuid}'. Check the node uuid.`
         );
     }
 
     private async resetComponent(uuid: string): Promise<ToolResponse> {
+        // Unlike its siblings, `reset-component` always returns null — success and
+        // a bogus uuid look identical. Confirm the uuid names a component first,
+        // otherwise a node uuid (the likely mistake) reports a silent success.
+        const dump: any = await editorRequest('scene', 'query-component', uuid);
+        if (!dump) {
+            return { success: false, error: `No component with uuid '${uuid}'. This takes a component uuid, not a node uuid — use component_query get_all to find it.` };
+        }
+
         return toolCall(
             () => editorRequest('scene', 'reset-component', { uuid }),
-            () => ({ message: 'Component reset to default values' })
+            () => ({ message: `Component '${dump.type || uuid}' reset to default values` })
         );
     }
 

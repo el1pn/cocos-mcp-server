@@ -141,7 +141,8 @@ export class ServerTools implements ToolExecutor {
             }
 
             status.mcpServerPort = 3000;
-            status.editorVersion = (Editor as any).versions?.cocos || 'Unknown';
+            // `Editor.versions` does not exist; the version lives on Editor.App.
+            status.editorVersion = (Editor as any).App?.version || 'Unknown';
             status.platform = process.platform;
             status.nodeVersion = process.version;
 
