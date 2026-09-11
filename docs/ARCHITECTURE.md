@@ -156,10 +156,10 @@ MCPServer.initializeTools()
 | Category | Tool | Key Actions |
 |---|---|---|
 | Scene | `scene_management` | `get_current`, `get_list`, `open`, `save`, `save_as`, `create`, `close`, `get_hierarchy` |
-| | `scene_state` | `query_dirty`, `query_ready`, `query_classes`, `query_components` |
-| | `scene_undo` | `begin_recording`, `cancel_recording`, `snapshot`, `abort_snapshot` |
+| | `scene_state` | `query_ready`, `query_dirty`, `query_classes`, `query_components`, `query_component_has_script`, `query_nodes_by_asset`, `soft_reload`, `snapshot`, `snapshot_abort` |
+| | `scene_undo` | `begin_recording`, `end_recording`, `cancel_recording` |
 | | `scene_screenshot` | `capture_scene`, `capture_camera`, `capture_node` — returns an inline image + world<->pixel `mapping` |
-| Scene View | `scene_view` | `get_state`, `set_gizmo_tool`, `set_pivot`, `set_coordinate`, `set_2d`, `set_grid`, `focus`, `align_with_node` |
+| Scene View | `scene_view` | `get_state`, `set_gizmo_tool`, `set_pivot`, `set_coordinate`, `set_grid`, `focus`, `align_with_node` |
 | Node | `node_lifecycle` | `create`, `delete`, `duplicate`, `move`, `rename` |
 | | `node_query` | `get_info`, `find_by_name`, `find_by_pattern`, `get_all`, `detect_type` |
 | | `node_transform` | `set_transform`, `set_property` |
@@ -177,21 +177,21 @@ MCPServer.initializeTools()
 | Animation | `animation_query` | `list_clips`, `get_clip`, `get_state`, `get_properties`, `get_current` — read-only |
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name`, `get_details`, `query_path`, `query_uuid`, `query_url` |
 | | `asset_crud` | `create`, `copy`, `move`, `delete`, `save`, `reimport`, `import`, `refresh` |
-| | `asset_advanced` | `generate_url`, `get_dependencies` |
-| | `asset_batch` | `batch_import`, `batch_delete`, `get_unused` |
+| | `asset_advanced` | `generate_url`, `query_db_ready`, `get_dependencies`, `get_unused` |
+| | `asset_batch` | `import`, `delete`, `validate_references`, `scan_scene_refs` |
 | Material | `material_manage` | `get_info`, `get_material_list`, `get_texture_list`, `get_shader_list`, `update_texture_meta` |
 | Project | `project_info` | `get_info`, `get_settings` |
 | | `project_build` | `get_build_settings`, `open_build_panel`, `check_builder_status` |
 | Debug | `debug_console` | `get_logs`, `clear`, `execute_script` |
-| | `debug_inspect` | `get_node_tree`, `validate_scene`, `probe_cce_api` |
-| | `debug_logs` | `get_file_info`, `get_logs`, `search_logs` |
-| Preferences | `preferences_config` | `get`, `set`, `get_all`, `reset`, `open_settings` |
+| | `debug_inspect` | `get_node_tree`, `get_performance_stats`, `validate_scene`, `get_editor_info`, `probe_cce_api` |
+| | `debug_logs` | `get_project_logs`, `get_log_file_info`, `search_logs` |
+| Preferences | `preferences_config` | `open_settings`, `query`, `set`, `get_all`, `reset` |
 | | `preferences_io` | `export`, `import` |
 | Search | `search_project` | `content`, `file_name`, `dir_name` |
 | Editor | `editor_actions` | `execute_menu`, `apply_text_edits`, `find_references` |
-| Execute | `execute_method` | `component_method`, `scene_script`, `sync_prefab` |
+| Execute | `execute_method` | `component_method`, `scene_script` |
 | Batch | `batch_execute` | (runs array of `{tool, args}` sequentially, max 20; `stopOnError`, `rollbackOnError`) |
-| Server | `server_info` | `get_status`, `get_network`, `check_connectivity` |
+| Server | `server_info` | `get_ip_list`, `get_sorted_ip_list`, `get_port`, `get_status`, `check_connectivity`, `get_network_interfaces` |
 | Validation | `validation` | `validate_json`, `safe_string`, `format_request` |
 
 ## Request Flow
@@ -213,9 +213,6 @@ handleHttpRequest()          ── CORS, routing
   │    │    │
   │    │    ▼
   │    │  Tool Queue           ── max 100 queued, max 5 concurrent, 60s timeout
-  │    │    │
-  │    │    ▼
-  │    │  normalizeToolArguments()  ── fix LLM hallucinations (operation→action, etc.)
   │    │    │
   │    │    ▼
   │    │  toolExecutor(args)   ── dispatch to ToolExecutor.execute()
@@ -254,26 +251,18 @@ handleHttpRequest()          ── CORS, routing
 
 Accessible via MCP resource `cocos://logs/latest`.
 
-## Parameter Aliasing
+## Parameter Validation
 
-`normalizeToolArguments()` automatically corrects common LLM hallucinations before tool execution:
+There is no argument normalization layer. `normalizeToolArguments()` used to
+rewrite `operation` → `action`, `node_uuid` → `nodeUuid` and similar before
+dispatch; it was removed because silently accepting a wrong parameter name hides
+the mistake from the model, which then keeps making it.
 
-**Name aliases** (applied when canonical param is absent):
-```
-operation, command, method  →  action
-node_uuid, nodeId, node_id  →  nodeUuid
-component, comp             →  componentType
-filePath, file, assetPath   →  url
-parent, parent_uuid         →  parentUuid
-```
-
-**Action value aliases:**
-```
-remove, destroy  →  delete
-list             →  get_list
-info             →  get_info
-find             →  find_by_name
-```
+Each tool validates its own arguments and returns an error that names the valid
+values, e.g. `Unknown action 'x'. Valid actions: create, delete, ...`. Return
+this rather than throwing: a thrown error becomes JSON-RPC `-32603`, while a
+returned `{success: false}` becomes an MCP `isError` result and stays visible to
+`batch_execute`.
 
 ## Asset Safety
 
@@ -346,6 +335,32 @@ called wrongly, so change them only with a live editor to verify against.
 | `reference-image`, `switch-image` | `(fsPath)` — single string | — |
 | `reference-image`, `set-image-data` | `(key, value)` — two positional args, **one field per call**; fields are `x`, `y`, `sx`, `sy`, `opacity` | An object of fields is accepted and silently ignored |
 | `scene`, `query-enum-list-with-path` | `(enumName)` — the **bare** name, e.g. `Overflow` | A qualified path like `cc.Label.Overflow` returns `null` |
+
+### Editor edits that fail by returning, not throwing
+
+`toolCall()` turns a thrown error into `success: false`, but these messages report
+failure in their **return value**. Wrapping one in a bare `toolCall` reports
+"reset successfully" for a wrong uuid or path while nothing changed — the most
+expensive kind of bug here, because the caller believes the scene was edited.
+`SceneAdvancedTools.editorEdit()` exists to reject the `false` cases.
+
+| Message | On failure | Notes |
+|---------|-----------|-------|
+| `scene`, `reset-property` | returns `false` | Except an unknown path, which returns **`true`**, and `node.name`, which throws `Cannot read properties of undefined (reading 'indexOf')`. Validate against the node dump first. |
+| `scene`, `reset-node` | returns `false` | — |
+| `scene`, `move-array-element` | returns `false` | `path` must name an array property, e.g. `__comps__.1.clickEvents` |
+| `scene`, `remove-array-element` | returns `false` | An out-of-range `index` returns `true` and changes nothing; omitting `index` removes the **last** element |
+| `scene`, `reset-component` | returns `null` — **and also on success** | Indistinguishable either way. Validate the uuid with `query-component` first; it takes a *component* uuid, not a node uuid. |
+
+A node property is only resettable when its dump carries a non-null `default`.
+`node.name` and `node.active` have none: the engine still answers `true` but
+writes `""` / `false`, which is a clobber rather than a reset. Nested leaves
+(`position.x`, `__comps__.0.enabled`) are shaped differently and do reset
+correctly, so that check only applies at depth 1.
+
+Editor property paths skip the descriptor wrapper: `position.x` addresses
+`dump.position.value.x`, and `__comps__.0.enabled` the component's
+`.value.enabled`. A walker over a dump has to step through `.value`.
 
 Two lookups that simply do not exist, despite their names suggesting otherwise:
 
