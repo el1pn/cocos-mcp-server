@@ -368,7 +368,6 @@ export class NodeTools implements ToolExecutor {
             // Handle sibling index
             if (args.siblingIndex !== undefined && args.siblingIndex >= 0 && uuid && targetParentUuid) {
                 try {
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for internal state update
                     await editorRequest('scene', 'set-parent', {
                         parent: targetParentUuid,
                         uuids: [uuid],
@@ -379,35 +378,30 @@ export class NodeTools implements ToolExecutor {
                 }
             }
 
-            // Add components (if provided)
+            // Add components (if provided). A component that fails to attach used to
+            // be logged and forgotten, so `components: [...]` could come back
+            // successful having added nothing. Collect the failures and report them.
+            const componentErrors: string[] = [];
             if (args.components && args.components.length > 0 && uuid) {
-                try {
-                    await new Promise(resolve => setTimeout(resolve, 100)); // Wait for node creation to complete
-                    for (const componentType of args.components) {
-                        try {
-                            const result = await this.componentTools.execute('component_manage', {
-                                action: 'add',
-                                nodeUuid: uuid,
-                                componentType: componentType
-                            });
-                            if (result.success) {
-                                logger.info(`Component ${componentType} added successfully`);
-                            } else {
-                                logger.warn(`Failed to add component ${componentType}: ${String(result.error)}`);
-                            }
-                        } catch (err) {
-                            logger.warn(`Failed to add component ${componentType}: ${(err as any)?.message ?? String(err)}`);
+                for (const componentType of args.components) {
+                    try {
+                        const result = await this.componentTools.execute('component_manage', {
+                            action: 'add',
+                            nodeUuid: uuid,
+                            componentType: componentType
+                        });
+                        if (!result.success) {
+                            componentErrors.push(`${componentType}: ${String(result.error)}`);
                         }
+                    } catch (err) {
+                        componentErrors.push(`${componentType}: ${(err as any)?.message ?? String(err)}`);
                     }
-                } catch (err) {
-                    logger.warn(`Failed to add components: ${(err as any)?.message ?? String(err)}`);
                 }
             }
 
             // Set initial transform (if provided)
             if (args.initialTransform && uuid) {
                 try {
-                    await new Promise(resolve => setTimeout(resolve, 150)); // Wait for node and component creation to complete
                     await this.setNodeTransform({
                         uuid: uuid,
                         position: args.initialTransform.position,
@@ -439,6 +433,23 @@ export class NodeTools implements ToolExecutor {
                 }
             } catch (err) {
                 logger.warn(`Failed to get verification data: ${(err as any)?.message ?? String(err)}`);
+            }
+
+            // The node exists either way, so this is not a plain failure — but a
+            // caller that asked for components and got none needs to know, and
+            // "created successfully" alone reads as though it got them.
+            if (componentErrors.length > 0) {
+                return {
+                    success: false,
+                    error: `Node '${args.name}' was created (uuid ${uuid}) but ${componentErrors.length} component(s) could not be added: ${componentErrors.join('; ')}`,
+                    data: {
+                        uuid,
+                        name: args.name,
+                        parentUuid: targetParentUuid,
+                        componentErrors
+                    },
+                    instruction: 'The node is in the scene. Add the missing components with component_manage, or delete it with node_lifecycle delete.'
+                };
             }
 
             const successMessage = finalAssetUuid

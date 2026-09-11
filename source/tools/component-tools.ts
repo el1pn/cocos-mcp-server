@@ -399,8 +399,6 @@ export class ComponentTools implements ToolExecutor {
                 uuid: nodeUuid,
                 component: componentType
             });
-            // Wait for Editor to complete component addition
-            await new Promise(resolve => setTimeout(resolve, 100));
             // Re-query node info to verify component was actually added
             try {
                 const allComponentsInfo2 = await this.getComponents(nodeUuid);
@@ -1380,8 +1378,9 @@ export class ComponentTools implements ToolExecutor {
                     });
                 }
 
-                // Step 5: Wait for Editor to complete update, then verify result
-                await new Promise(resolve => setTimeout(resolve, 200)); // Wait 200ms for Editor to complete update
+                // Step 5: Verify the result. `Editor.Message.request` resolves only
+                // after the editor has applied the change, so a re-query sees it
+                // immediately — no settling delay is needed.
 
                 const verification = await this.verifyPropertyChange(nodeUuid, componentType, property, originalValue, actualExpectedValue);
 
@@ -1493,8 +1492,6 @@ export class ComponentTools implements ToolExecutor {
                 uuid: nodeUuid,
                 component: scriptName  // Use script name instead of UUID
             });
-            // Wait for Editor to complete component addition
-            await new Promise(resolve => setTimeout(resolve, 100));
             // Re-query node info to verify script was actually added
             const allComponentsInfo2 = await this.getComponents(nodeUuid);
             if (allComponentsInfo2.success && allComponentsInfo2.data?.components) {
