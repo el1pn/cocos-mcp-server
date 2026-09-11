@@ -1,5 +1,6 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
 import { editorRequest, toolCall } from '../utils/editor-request';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 
 export class SceneAdvancedTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -141,6 +142,12 @@ export class SceneAdvancedTools implements ToolExecutor {
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
+        // `uuid` names a component for execute_method/reset_component and a node
+        // elsewhere. Resolving both is still safe: a UUID of either kind is
+        // returned untouched, and only a path or a name triggers a node lookup.
+        const unresolved = await resolveNodeRefFields(args, ['nodeUuid', 'uuid']);
+        if (unresolved) { return unresolved; }
+
         switch (toolName) {
             case 'scene_state':
                 switch (args.action) {

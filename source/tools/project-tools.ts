@@ -264,7 +264,8 @@ export class ProjectTools implements ToolExecutor {
             path: Editor.Project.path,
             uuid: Editor.Project.uuid,
             version: (Editor.Project as any).version || '1.0.0',
-            cocosVersion: (Editor as any).versions?.cocos || 'Unknown'
+            // `Editor.versions` does not exist; the editor version lives on Editor.App.
+            cocosVersion: (Editor as any).App?.version || 'Unknown'
         };
 
         try {

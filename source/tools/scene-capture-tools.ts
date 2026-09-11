@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
 import { editorRequest } from '../utils/editor-request';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 
 /**
  * Captures a clean PNG render of the currently-open scene/prefab from the editor.
@@ -78,6 +79,10 @@ export class SceneCaptureTools implements ToolExecutor {
     }
 
     async execute(_toolName: string, args: any): Promise<ToolResponse> {
+        // Both refs name scene nodes, so a path or a name works as well as a UUID.
+        const unresolved = await resolveNodeRefFields(args, ['nodeUuid', 'cameraUuid']);
+        if (unresolved) { return unresolved; }
+
         switch (args.action) {
             case 'capture_scene':
                 return this.capture('scene', args);

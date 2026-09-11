@@ -1,4 +1,5 @@
 import { ToolDefinition, ToolResponse, ToolExecutor } from '../types';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 import {
     UISpec,
     UISemanticType,
@@ -75,6 +76,9 @@ export class UIBuilderTools implements ToolExecutor {
         if (toolName !== 'ui_build_from_spec') {
             throw new Error(`Unknown tool: ${toolName}`);
         }
+        // The parent may be given as a path or a name; the engine wants a UUID.
+        const unresolved = await resolveNodeRefFields(args, ['parentUuid']);
+        if (unresolved) { return unresolved; }
         return this.buildFromSpec(args);
     }
 

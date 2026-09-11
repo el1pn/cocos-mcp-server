@@ -115,5 +115,27 @@ export async function resolveOptionalNodeUuid(ref: string | undefined | null): P
     return resolveNodeUuid(ref);
 }
 
+/**
+ * Resolve every node-reference field on an arguments object in place, so a tool
+ * accepts a path or a name wherever it accepts a UUID.
+ *
+ * Returns an error response naming the offending field, or null when all fields
+ * resolved. Call this once at dispatch rather than per code path — a tool that
+ * skips it passes the caller's path straight to the editor, which does not
+ * understand paths and typically fails with a bare null.
+ */
+export async function resolveNodeRefFields(args: any, fields: string[]): Promise<{ success: false; error: string } | null> {
+    for (const field of fields) {
+        const ref = args?.[field];
+        if (ref === undefined || ref === null || ref === '') continue;
+        try {
+            args[field] = await resolveNodeUuid(ref);
+        } catch (err: any) {
+            return { success: false, error: `${field}: ${err.message}` };
+        }
+    }
+    return null;
+}
+
 // Exported for tests — resolving against an in-memory tree needs no editor.
 export const __test__ = { collectMatches };

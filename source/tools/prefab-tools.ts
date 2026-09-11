@@ -3,6 +3,7 @@ import { ToolDefinition, ToolResponse, ToolExecutor, PrefabInfo } from '../types
 import { logger } from '../logger';
 import { validateAssetUrl } from '../utils/asset-safety';
 import { editorRequest, toolCall } from '../utils/editor-request';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 
 export class PrefabTools implements ToolExecutor {
     getTools(): ToolDefinition[] {
@@ -114,6 +115,11 @@ export class PrefabTools implements ToolExecutor {
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
+        // Node references arrive as UUID, path or name. Resolve before dispatch —
+        // the engine only understands UUIDs and answers a path with a bare null.
+        const unresolved = await resolveNodeRefFields(args, ['nodeUuid', 'parentUuid']);
+        if (unresolved) { return unresolved; }
+
         switch (toolName) {
             case 'prefab_lifecycle': {
                 switch (args.action) {

@@ -1631,42 +1631,68 @@ export class ComponentTools implements ToolExecutor {
             if (component.properties.value && typeof component.properties.value === 'object') {
                 const valueObj = component.properties.value;
                 for (const [key, propData] of Object.entries(valueObj)) {
-                    // Check if propData is a valid property descriptor object
-                    // Ensure propData is an object and contains expected property structure
-                    if (this.isValidPropertyDescriptor(propData)) {
-                        const propInfo = propData as any;
-                        availableProperties.push(key);
-                        if (key === propertyName) {
-                            // Prefer value property, if not available use propData itself
-                            try {
-                                const propKeys = Object.keys(propInfo);
-                                propertyValue = propKeys.includes('value') ? propInfo.value : propInfo;
-                            } catch (error) {
-                                // If check fails, use propInfo directly
-                                propertyValue = propInfo;
-                            }
-                            propertyExists = true;
-                        }
+                    // A primitive property is dumped as its bare value, not as a
+                    // {value, type} descriptor — accept both.
+                    const isDescriptor = this.isValidPropertyDescriptor(propData);
+                    const isPrimitive = propData === null || ['string', 'number', 'boolean'].includes(typeof propData);
+                    if (!isDescriptor && !isPrimitive) {
+                        continue;
                     }
+
+                    availableProperties.push(key);
+                    if (key !== propertyName) {
+                        continue;
+                    }
+
+                    if (isDescriptor) {
+                        const propInfo = propData as any;
+                        // Prefer value property, if not available use propData itself
+                        try {
+                            const propKeys = Object.keys(propInfo);
+                            propertyValue = propKeys.includes('value') ? propInfo.value : propInfo;
+                        } catch (error) {
+                            // If check fails, use propInfo directly
+                            propertyValue = propInfo;
+                        }
+                    } else {
+                        propertyValue = propData;
+                    }
+                    propertyExists = true;
                 }
             } else {
-                // Fallback: find directly from properties
+                // Fallback: find directly from properties.
+                //
+                // The editor dumps a primitive property as its bare value —
+                // cc.Label.string arrives as "label", fontSize as 40 — while an
+                // object-valued one arrives wrapped as {value, type}. Only
+                // descriptors were accepted here, so the most commonly written
+                // properties on a component read as "not found".
                 for (const [key, propData] of Object.entries(component.properties)) {
-                    if (this.isValidPropertyDescriptor(propData)) {
-                        const propInfo = propData as any;
-                        availableProperties.push(key);
-                        if (key === propertyName) {
-                            // Prefer value property, if not available use propData itself
-                            try {
-                                const propKeys = Object.keys(propInfo);
-                                propertyValue = propKeys.includes('value') ? propInfo.value : propInfo;
-                            } catch (error) {
-                                // If check fails, use propInfo directly
-                                propertyValue = propInfo;
-                            }
-                            propertyExists = true;
-                        }
+                    const isDescriptor = this.isValidPropertyDescriptor(propData);
+                    const isPrimitive = propData === null || ['string', 'number', 'boolean'].includes(typeof propData);
+                    if (!isDescriptor && !isPrimitive) {
+                        continue;
                     }
+
+                    availableProperties.push(key);
+                    if (key !== propertyName) {
+                        continue;
+                    }
+
+                    if (isDescriptor) {
+                        const propInfo = propData as any;
+                        // Prefer value property, if not available use propData itself
+                        try {
+                            const propKeys = Object.keys(propInfo);
+                            propertyValue = propKeys.includes('value') ? propInfo.value : propInfo;
+                        } catch (error) {
+                            // If check fails, use propInfo directly
+                            propertyValue = propInfo;
+                        }
+                    } else {
+                        propertyValue = propData;
+                    }
+                    propertyExists = true;
                 }
             }
         }

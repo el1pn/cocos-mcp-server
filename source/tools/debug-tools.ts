@@ -3,6 +3,7 @@ import { logger } from '../logger';
 import * as fs from 'fs';
 import * as path from 'path';
 import { editorRequest, toolCall } from '../utils/editor-request';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 
 export class DebugTools implements ToolExecutor {
     private consoleMessages: ConsoleMessage[] = [];
@@ -164,6 +165,10 @@ export class DebugTools implements ToolExecutor {
     }
 
     async execute(toolName: string, args: any): Promise<ToolResponse> {
+        // Both are scene-node references, so accept a path or a name too.
+        const unresolved = await resolveNodeRefFields(args, ['nodeUuid', 'rootUuid']);
+        if (unresolved) { return unresolved; }
+
         switch (toolName) {
             case 'debug_console': {
                 const action = args.action;
@@ -443,8 +448,8 @@ export class DebugTools implements ToolExecutor {
     private async getEditorInfo(): Promise<ToolResponse> {
         const info = {
             editor: {
-                version: (Editor as any).versions?.editor || 'Unknown',
-                cocosVersion: (Editor as any).versions?.cocos || 'Unknown',
+                // `Editor.versions` does not exist; the version lives on Editor.App.
+                version: (Editor as any).App?.version || 'Unknown',
                 platform: process.platform,
                 arch: process.arch,
                 nodeVersion: process.version
