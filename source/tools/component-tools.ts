@@ -1,7 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
 import { editorRequest } from '../utils/editor-request';
-import { resolveNodeUuid } from '../utils/node-resolver';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 import { logger } from '../logger';
 
 export class ComponentTools implements ToolExecutor {
@@ -168,13 +168,8 @@ export class ComponentTools implements ToolExecutor {
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         // Every tool here addresses a node by `nodeUuid`; accept a path or unique
         // name there too so callers don't need a separate lookup call first.
-        if (args?.nodeUuid) {
-            try {
-                args.nodeUuid = await resolveNodeUuid(args.nodeUuid);
-            } catch (err: any) {
-                return { success: false, error: `nodeUuid: ${err.message}` };
-            }
-        }
+        const unresolved = await resolveNodeRefFields(args, ['nodeUuid']);
+        if (unresolved) { return unresolved; }
 
         switch (toolName) {
             case 'component_manage': {

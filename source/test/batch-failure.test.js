@@ -72,11 +72,54 @@ async function allSuccessStaysSuccessful() {
     assert.strictEqual(res.data.results.every(r => !r.error), true);
 }
 
+/**
+ * A snapshot restores node state; it cannot un-create a node or un-write an
+ * asset. Reporting a bare "succeeded" over those leaves the caller believing
+ * the scene was returned to its prior state, so they must be named.
+ */
+async function rollbackNamesWhatItCouldNotUndo() {
+    // Stand in for the editor: the snapshot/restore round-trip goes through
+    // execute-scene-script, which only exists inside a running editor.
+    global.Editor = {
+        Message: {
+            request: async (_module, _action, payload) => {
+                if (payload?.method === 'snapshotNodes') {
+                    return { success: true, data: { nodes: [] } };
+                }
+                return { success: true, data: { restored: [], missing: [] } };
+            }
+        }
+    };
+
+    try {
+        const { batch } = makeBatch({
+            node_lifecycle: async () => ({ success: true }),
+            bad: async () => ({ success: false, error: 'boom' })
+        });
+
+        const res = await batch.execute('batch_execute', {
+            operations: [
+                { tool: 'node_lifecycle', args: { action: 'create', name: 'X' } },
+                op('bad')
+            ],
+            rollbackOnError: true
+        });
+
+        assert.strictEqual(res.success, false);
+        assert.deepStrictEqual(res.data.rollback.unprotected, ['node_lifecycle.create']);
+        assert.match(res.data.rollback.warning, /NOT undone/);
+        assert.match(res.message, /could not be undone/);
+    } finally {
+        delete global.Editor;
+    }
+}
+
 (async () => {
     await returnedFailureIsAnError();
     await stopOnErrorHaltsOnReturnedFailure();
     await thrownErrorStillCounts();
     await allSuccessStaysSuccessful();
+    await rollbackNamesWhatItCouldNotUndo();
     console.log('batch-failure: all checks passed');
 })().catch(err => {
     console.error('batch-failure FAILED:', err.message);

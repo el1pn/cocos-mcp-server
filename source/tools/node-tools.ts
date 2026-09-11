@@ -2,7 +2,7 @@ import { ToolDefinition, ToolResponse, ToolExecutor, NodeInfo } from '../types';
 import { ComponentTools } from './component-tools';
 import { logger } from '../logger';
 import { editorRequest, toolCall } from '../utils/editor-request';
-import { resolveNodeUuid } from '../utils/node-resolver';
+import { resolveNodeRefFields } from '../utils/node-resolver';
 
 export class NodeTools implements ToolExecutor {
     private componentTools = new ComponentTools();
@@ -208,24 +208,6 @@ export class NodeTools implements ToolExecutor {
         ];
     }
 
-    /**
-     * Resolve node-reference fields (UUID, path, or name) to UUIDs in place.
-     * Returns an error response if any reference is missing or ambiguous, so the
-     * caller can surface it instead of writing to the wrong node.
-     */
-    private async resolveNodeRefs(args: any, fields: string[]): Promise<ToolResponse | null> {
-        for (const field of fields) {
-            const ref = args[field];
-            if (ref === undefined || ref === null || ref === '') continue;
-            try {
-                args[field] = await resolveNodeUuid(ref);
-            } catch (err: any) {
-                return { success: false, error: `${field}: ${err.message}` };
-            }
-        }
-        return null;
-    }
-
     async execute(toolName: string, args: any): Promise<ToolResponse> {
         const refFields: Record<string, string[]> = {
             node_lifecycle: ['uuid', 'parentUuid', 'nodeUuid', 'newParentUuid'],
@@ -233,7 +215,7 @@ export class NodeTools implements ToolExecutor {
             node_transform: ['uuid']
         };
         if (refFields[toolName]) {
-            const refError = await this.resolveNodeRefs(args, refFields[toolName]);
+            const refError = await resolveNodeRefFields(args, refFields[toolName]);
             if (refError) return refError;
         }
 

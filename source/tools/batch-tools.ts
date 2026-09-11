@@ -133,7 +133,7 @@ export class BatchTools implements ToolExecutor {
                 rollback
             },
             message: hasError
-                ? `Batch completed with errors: ${results.filter(r => r.error).length}/${results.length} failed${rollback ? `; rollback ${rollback.restored} node(s)` : ''}`
+                ? `Batch completed with errors: ${results.filter(r => r.error).length}/${results.length} failed${rollback ? `; rollback restored ${rollback.restored} node(s)${rollback.unprotected ? `, but ${rollback.unprotected.length} operation(s) could not be undone` : ''}` : ''}`
                 : `Batch completed successfully: ${results.length} operations`
         };
     }
@@ -146,8 +146,19 @@ export class BatchTools implements ToolExecutor {
     private async takeSnapshot(operations: Array<{ tool: string; args: any }>): Promise<{ snapshot?: any; error?: string }> {
         const NODE_FIELDS = ['uuid', 'nodeUuid', 'parentUuid', 'newParentUuid'];
         const refs = new Set<string>();
+        // A snapshot restores the state of nodes that already exist. It cannot undo
+        // a node being created or deleted, nor any asset write. Record which
+        // operations fall outside it so the rollback result says so instead of
+        // reporting a clean "succeeded" over changes that are still there.
+        const unprotected: string[] = [];
 
         for (const op of operations) {
+            const action = op.args?.action;
+            if (op.tool === 'node_lifecycle' && (action === 'create' || action === 'delete' || action === 'duplicate')) {
+                unprotected.push(`${op.tool}.${action}`);
+            } else if (op.tool.startsWith('asset_') || op.tool === 'prefab_lifecycle') {
+                unprotected.push(`${op.tool}.${action}`);
+            }
             for (const field of NODE_FIELDS) {
                 const value = op.args?.[field];
                 if (typeof value === 'string' && value) refs.add(value);
@@ -155,7 +166,7 @@ export class BatchTools implements ToolExecutor {
         }
 
         if (refs.size === 0) {
-            return { snapshot: { nodes: [] } };
+            return { snapshot: { nodes: [], unprotected } };
         }
 
         const uuids: string[] = [];
@@ -177,7 +188,7 @@ export class BatchTools implements ToolExecutor {
             if (!result?.success) {
                 return { error: result?.error || 'snapshotNodes failed' };
             }
-            return { snapshot: result.data };
+            return { snapshot: { ...result.data, unprotected } };
         } catch (err: any) {
             return { error: err?.message || String(err) };
         }
@@ -190,12 +201,19 @@ export class BatchTools implements ToolExecutor {
                 method: 'restoreNodes',
                 args: [snapshot]
             });
+            const unprotected: string[] = snapshot?.unprotected ?? [];
             return {
                 attempted: true,
                 succeeded: !!result?.success,
                 restored: result?.data?.restored?.length ?? 0,
                 missing: result?.data?.missing ?? [],
-                error: result?.error
+                error: result?.error,
+                // Naming them beats a silent partial rollback: the caller has to
+                // undo these by hand, and "succeeded: true" alone reads as done.
+                ...(unprotected.length ? {
+                    unprotected,
+                    warning: `Rollback restored node state only. These operations are outside a snapshot and were NOT undone: ${unprotected.join(', ')}. Undo them manually.`
+                } : {})
             };
         } catch (err: any) {
             return { attempted: true, succeeded: false, restored: 0, error: err?.message || String(err) };
