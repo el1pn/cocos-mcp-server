@@ -3,21 +3,6 @@ module.paths.push(join(Editor.App.path, 'node_modules'));
 
 export const methods: { [key: string]: (...any: any) => any } = {
     /**
-     * Create a new scene
-     */
-    createNewScene() {
-        try {
-            const { director, Scene } = require('cc');
-            const scene = new Scene();
-            scene.name = 'New Scene';
-            director.runScene(scene);
-            return { success: true, message: 'New scene created successfully' };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    },
-
-    /**
      * Add component to a node
      */
     addComponentToNode(nodeUuid: string, componentType: string) {
@@ -47,39 +32,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
                 message: `Component ${componentType} added successfully`,
                 data: { componentId: component.uuid }
             };
-        } catch (error: any) {
-            return { success: false, error: error.message };
-        }
-    },
-
-    /**
-     * Remove component from a node
-     */
-    removeComponentFromNode(nodeUuid: string, componentType: string) {
-        try {
-            const { director, js } = require('cc');
-            const scene = director.getScene();
-            if (!scene) {
-                return { success: false, error: 'No active scene' };
-            }
-
-            const node = scene.getChildByUuid(nodeUuid);
-            if (!node) {
-                return { success: false, error: `Node with UUID ${nodeUuid} not found` };
-            }
-
-            const ComponentClass = js.getClassByName(componentType);
-            if (!ComponentClass) {
-                return { success: false, error: `Component type ${componentType} not found` };
-            }
-
-            const component = node.getComponent(ComponentClass);
-            if (!component) {
-                return { success: false, error: `Component ${componentType} not found on node` };
-            }
-
-            node.removeComponent(component);
-            return { success: true, message: `Component ${componentType} removed successfully` };
         } catch (error: any) {
             return { success: false, error: error.message };
         }
@@ -371,85 +323,6 @@ export const methods: { [key: string]: (...any: any) => any } = {
             };
         } catch (error: any) {
             return { success: false, error: error?.message || String(error) };
-        }
-    },
-
-    /**
-     * Set component property
-     */
-    setComponentProperty(nodeUuid: string, componentType: string, property: string, value: any) {
-        try {
-            const { director, js } = require('cc');
-            const scene = director.getScene();
-            if (!scene) {
-                return { success: false, error: 'No active scene' };
-            }
-            const node = scene.getChildByUuid(nodeUuid);
-            if (!node) {
-                return { success: false, error: `Node with UUID ${nodeUuid} not found` };
-            }
-            const ComponentClass = js.getClassByName(componentType);
-            if (!ComponentClass) {
-                return { success: false, error: `Component type ${componentType} not found` };
-            }
-            const component = node.getComponent(ComponentClass);
-            if (!component) {
-                return { success: false, error: `Component ${componentType} not found on node` };
-            }
-            // Special handling for common properties
-            if (property === 'spriteFrame' && componentType === 'cc.Sprite') {
-                // Support value as uuid or asset path
-                if (typeof value === 'string') {
-                    // Try to find by uuid first
-                    const assetManager = require('cc').assetManager;
-                    assetManager.resources.load(value, require('cc').SpriteFrame, (err: any, spriteFrame: any) => {
-                        if (!err && spriteFrame) {
-                            component.spriteFrame = spriteFrame;
-                        } else {
-                            // Try loading by uuid
-                            assetManager.loadAny({ uuid: value }, (err2: any, asset: any) => {
-                                if (!err2 && asset) {
-                                    component.spriteFrame = asset;
-                                } else {
-                                    // Direct assignment (compatible with passed asset objects)
-                                    component.spriteFrame = value;
-                                }
-                            });
-                        }
-                    });
-                } else {
-                    component.spriteFrame = value;
-                }
-            } else if (property === 'material' && (componentType === 'cc.Sprite' || componentType === 'cc.MeshRenderer')) {
-                // Support value as uuid or asset path
-                if (typeof value === 'string') {
-                    const assetManager = require('cc').assetManager;
-                    assetManager.resources.load(value, require('cc').Material, (err: any, material: any) => {
-                        if (!err && material) {
-                            component.material = material;
-                        } else {
-                            assetManager.loadAny({ uuid: value }, (err2: any, asset: any) => {
-                                if (!err2 && asset) {
-                                    component.material = asset;
-                                } else {
-                                    component.material = value;
-                                }
-                            });
-                        }
-                    });
-                } else {
-                    component.material = value;
-                }
-            } else if (property === 'string' && (componentType === 'cc.Label' || componentType === 'cc.RichText')) {
-                component.string = value;
-            } else {
-                component[property] = value;
-            }
-            // Optional: refresh Inspector
-            // Editor.Message.send('scene', 'snapshot');
-            return { success: true, message: `Component property '${property}' updated successfully` };
-        } catch (error: any) {
-            return { success: false, error: error.message };
         }
     },
 
