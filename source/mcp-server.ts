@@ -17,7 +17,6 @@ import { AssetAdvancedTools } from './tools/asset-advanced-tools';
 import { BatchTools } from './tools/batch-tools';
 import { EditorTools } from './tools/editor-tools';
 import { MaterialTools } from './tools/material-tools';
-import { UIBuilderTools } from './tools/ui-builder-tools';
 import { SceneCaptureTools } from './tools/scene-capture-tools';
 import { KnowledgeTools } from './tools/knowledge-tools';
 import { ReferenceImageTools } from './tools/reference-image-tools';
@@ -92,7 +91,6 @@ export class MCPServer {
             this.tools.batch = new BatchTools(this.executeToolCall.bind(this));
             this.tools.editor = new EditorTools();
             this.tools.material = new MaterialTools();
-            this.tools.uiBuilder = new UIBuilderTools();
             this.tools.sceneCapture = new SceneCaptureTools();
             this.tools.knowledge = new KnowledgeTools();
             this.tools.referenceImage = new ReferenceImageTools();
@@ -952,8 +950,8 @@ export class MCPServer {
                             'Exception: bulk find-replace of a single identifier (e.g. __type__ CID, enum string) via direct text edit is OK when no tool covers it, no JSON structure changes, and tree is committed first. ' +
                             '.ts/.js source is always directly editable. Most tools take an "action" param — see each tool schema for its actions. ' +
                             'After creating/restructuring UI nodes, apply ui_apply_responsive_defaults. Prefer reusable prefab edits at the source asset over scene-local overrides. ' +
-                            'For composite UI (popups, panels, list items, HUD, etc.): do not hand-assemble via chained node_lifecycle.create. First check for an existing prefab template (prefab_query.get_list / asset_query.find_by_name type=prefab) and prefab_lifecycle.instantiate + set_component_property. ' +
-                            'Trivial wrappers (≤3 children, no layout) may be built from scratch. Otherwise use ui_build_from_spec: sketch the UISpec + ASCII tree, confirm with user, then one call. ' +
+                            'For composite UI (popups, panels, list items, HUD, etc.): do not hand-assemble via chained node_lifecycle.create. First check for an existing prefab template (prefab_query.get_list / asset_query.find_by_name type=prefab), instantiate it, then apply narrow property or instance overrides. ' +
+                            'If no template exists, author the prefab in the Cocos editor: MCP cannot reproduce the native editor UI-template creation flow. Trivial wrappers (≤3 children, no layout) may be built from scratch. ' +
                             'Keep node names semantic/short, matching their component role. On hierarchy/name changes, update script references and lookup paths. Validate refs after edits — no missing links. ' +
                             'Save/reload touched scene/prefab before finishing. Report changes made (nodes, components, constraints, presets). Ask before guessing ambiguous layout requirements. ' +
                             'Resources: cocos://hierarchy, cocos://selection, cocos://logs/latest. Use batch_execute to run multiple operations in one call.'

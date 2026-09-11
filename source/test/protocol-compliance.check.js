@@ -13,11 +13,12 @@ const checks = [
     ['isError set from tool success', /isError:.*toolResultText.*success.*===\s*false/s],
     ['tools capability declares listChanged', /tools:\s*\{\s*listChanged:\s*false\s*\}/],
     ['resources capability declares subscribe/listChanged', /resources:\s*\{\s*subscribe:\s*false,\s*listChanged:\s*false\s*\}/],
+    ['experimental UI builder is not registered', !/ui_build_from_spec/.test(src)],
 ];
 
 let failed = 0;
 for (const [name, re] of checks) {
-    const pass = re.test(src);
+    const pass = typeof re === 'boolean' ? re : re.test(src);
     console.log(`${pass ? 'PASS' : 'FAIL'}  ${name}`);
     if (!pass) failed++;
 }

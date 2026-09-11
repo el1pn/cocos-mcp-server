@@ -99,7 +99,6 @@ source/
 │   ├── batch-tools.ts
 │   ├── search-tools.ts
 │   ├── editor-tools.ts
-│   ├── ui-builder-tools.ts
 │   └── material-tools.ts
 └── panels/
     └── default/index.ts    # Vanilla DOM panel using native Cocos UI elements
@@ -172,7 +171,6 @@ MCPServer.initializeTools()
 | Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update`, `duplicate`, `open` |
 | | `prefab_query` | `get_list`, `get_info`, `validate` |
 | | `prefab_instance` | `revert`, `restore` |
-| UI Builder | `ui_build_from_spec` | (builds a node tree from a semantic UI spec) |
 | Reference Image | `reference_image` | `add`, `remove`, `switch`, `set_transform`, `query` |
 | Animation | `animation_query` | `list_clips`, `get_clip`, `get_state`, `get_properties`, `get_current` — read-only |
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name`, `get_details`, `query_path`, `query_uuid`, `query_url` |

@@ -68,7 +68,6 @@ Node parameters accept a UUID, a path (`"Canvas/Panel/Button"`), or a unique nod
 | Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update` |
 | Asset | `asset_query` | `get_info`, `get_assets`, `find_by_name` |
 | | `asset_crud` | `create`, `copy`, `move`, `delete`, `save` |
-| UI Builder | `ui_build_from_spec` | declarative UI tree from a UISpec JSON |
 | Knowledge | `knowledge_query` | `describe_component`, `list_component_types`, `list_classes` |
 | Scene View | `scene_view` | `set_gizmo_tool`, `set_2d`, `set_grid`, `focus`, `align_with_node` |
 | | `scene_screenshot` | `capture_scene`, `capture_camera`, `capture_node` |
