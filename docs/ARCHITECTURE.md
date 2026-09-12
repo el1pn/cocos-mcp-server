@@ -24,7 +24,7 @@ Cocos MCP Server is a Cocos Creator 3.8+ editor extension that exposes an MCP (M
                         │  │               └─ GET  /api/tools    │  │
                         │  │               │                     │  │
                         │  │          ┌────┴────┐                │  │
-                        │  │          │  Tools  │ (38 tools)     │  │
+                        │  │          │  Tools  │ (36 tools)     │  │
                         │  │          └────┬────┘                │  │
                         │  │               │                     │  │
                         │  │          Editor.Message.request()   │  │
@@ -146,11 +146,12 @@ MCPServer.initializeTools()
   └── setupTools()
         │
         ├── toolSet.getTools()     → collects all ToolDefinition[]
-        ├── filter by enabledTools → applies tool manager config
         └── toolExecutors.set()    → maps name → executor function
 ```
 
-### Tool Inventory (38 tools across 21 executors)
+All registered tools are always exposed — there is no enable/disable-by-category config.
+
+### Tool Inventory (36 tools across 20 executors)
 
 | Category | Tool | Key Actions |
 |---|---|---|
@@ -166,7 +167,6 @@ MCPServer.initializeTools()
 | Component | `component_manage` | `add`, `remove`, `attach_script` |
 | | `component_query` | `get_all`, `get_info`, `get_available` |
 | | `set_component_property` | (direct property setting) |
-| | `ui_apply_responsive_defaults` | (widget/layout defaults for UI nodes) |
 | Knowledge | `knowledge_query` | `list_component_types`, `describe_component`, `list_classes`, `has_script`, `list_enum`, `list_layers` |
 | Prefab | `prefab_lifecycle` | `create`, `instantiate`, `update`, `duplicate`, `open` |
 | | `prefab_query` | `get_list`, `get_info`, `validate` |

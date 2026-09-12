@@ -949,7 +949,7 @@ export class MCPServer {
                             'Use MCP/editor APIs (not direct file edits) for scene/node/component/prefab/asset/project/editor operations, especially structural changes (adding/removing nodes or components, __id__/UUID/array refs) to .scene/.prefab/.meta. ' +
                             'Exception: bulk find-replace of a single identifier (e.g. __type__ CID, enum string) via direct text edit is OK when no tool covers it, no JSON structure changes, and tree is committed first. ' +
                             '.ts/.js source is always directly editable. Most tools take an "action" param — see each tool schema for its actions. ' +
-                            'After creating/restructuring UI nodes, apply ui_apply_responsive_defaults. Prefer reusable prefab edits at the source asset over scene-local overrides. ' +
+                            'Prefer reusable prefab edits at the source asset over scene-local overrides. ' +
                             'For composite UI (popups, panels, list items, HUD, etc.): do not hand-assemble via chained node_lifecycle.create. First check for an existing prefab template (prefab_query.get_list / asset_query.find_by_name type=prefab), instantiate it, then apply narrow property or instance overrides. ' +
                             'If no template exists, author the prefab in the Cocos editor: MCP cannot reproduce the native editor UI-template creation flow. Trivial wrappers (≤3 children, no layout) may be built from scratch. ' +
                             'Keep node names semantic/short, matching their component role. On hierarchy/name changes, update script references and lookup paths. Validate refs after edits — no missing links. ' +
