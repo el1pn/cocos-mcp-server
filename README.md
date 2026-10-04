@@ -108,7 +108,9 @@ Plugin panel (`Extension > Cocos MCP Server`):
 |---------|---------|-------------|
 | Port | 3000 | HTTP server port (auto-retries if in use) |
 | Auto Start | off | Start server when editor opens |
-| Debug Log | off | Verbose logging to disk |
+| Debug Log | off | Log sanitized MCP tool calls to disk for troubleshooting |
+
+With **Debug Log** enabled, each tool call records its name, redacted/truncated arguments and result, status, duration, and correlation ID. Logs are stored at `<Cocos project>/local/cocos-mcp-server/mcp-server.log`; the previous file is retained as `mcp-server.log.1` after 2 MB rotation. Recent entries are also available through `cocos://logs/latest`.
 
 ## Development
 
