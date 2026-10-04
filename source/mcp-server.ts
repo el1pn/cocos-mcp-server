@@ -2,7 +2,7 @@ import { randomBytes } from 'crypto';
 import * as http from 'http';
 import * as url from 'url';
 import { MCPServerSettings, ServerStatus, MCPClient, ToolDefinition } from './types';
-import { logger } from './logger';
+import { formatLogPayload, logger } from './logger';
 import { registerAllMcpClients, RetryHandle } from './mcp-clients';
 import { SceneTools } from './tools/scene-tools';
 import { NodeTools } from './tools/node-tools';
@@ -55,7 +55,10 @@ export class MCPServer {
     private serverInstanceId: string;
     private mcpClientRegisterRetry: RetryHandle | null = null;
     private toolQueue: Array<{
-        run: () => Promise<any>;
+        toolName: string;
+        callId: string;
+        requestId?: string | number | null;
+        run: (startedAt: number) => Promise<any>;
         resolve: (value: any) => void;
         reject: (reason?: any) => void;
     }> = [];
@@ -179,21 +182,73 @@ export class MCPServer {
         logger.info(`Setup tools: ${this.toolsList.length} tools available`);
     }
 
-    public async executeToolCall(toolName: string, args: any): Promise<any> {
-        const executor = this.toolExecutors.get(toolName);
-        if (executor) {
-            return await executor(args);
-        }
+    public async executeToolCall(
+        toolName: string,
+        args: any,
+        trace?: { callId?: string; requestId?: string | number | null; startedAt?: number }
+    ): Promise<any> {
+        const callId = trace?.callId || MCPServer.createUuid();
+        const startedAt = trace?.startedAt ?? Date.now();
+        this.logToolTrace({
+            event: 'start',
+            callId,
+            requestId: trace?.requestId,
+            tool: toolName,
+            args
+        });
 
-        // Fallback: try to find the tool in any executor
-        for (const [_category, toolSet] of Object.entries(this.tools)) {
-            const tools = toolSet.getTools();
-            if (tools.some((t: any) => t.name === toolName)) {
-                return await toolSet.execute(toolName, args);
+        try {
+            const executor = this.toolExecutors.get(toolName);
+            let result: any;
+            if (executor) {
+                result = await executor(args);
+            } else {
+                // Fallback: try to find the tool in any executor
+                let found = false;
+                for (const [_category, toolSet] of Object.entries(this.tools)) {
+                    const tools = toolSet.getTools();
+                    if (tools.some((t: any) => t.name === toolName)) {
+                        found = true;
+                        result = await toolSet.execute(toolName, args);
+                        break;
+                    }
+                }
+                if (!found) {
+                    throw new Error(`Tool ${toolName} not found`);
+                }
             }
-        }
 
-        throw new Error(`Tool ${toolName} not found`);
+            this.logToolTrace({
+                event: 'end',
+                callId,
+                requestId: trace?.requestId,
+                tool: toolName,
+                durationMs: Date.now() - startedAt,
+                success: result?.success !== false,
+                result
+            });
+            return result;
+        } catch (error: any) {
+            this.logToolTrace({
+                event: 'error',
+                callId,
+                requestId: trace?.requestId,
+                tool: toolName,
+                durationMs: Date.now() - startedAt,
+                success: false,
+                error
+            });
+            throw error;
+        }
+    }
+
+    private logToolTrace(event: Record<string, unknown>): void {
+        if (!this.settings.enableDebugLog) return;
+        try {
+            logger.mcp(`tool_call ${formatLogPayload(event)}`);
+        } catch {
+            // Debug logging must never affect tool execution.
+        }
     }
 
     public getClients(): MCPClient[] {
@@ -899,7 +954,7 @@ export class MCPServer {
                     break;
                 case 'tools/call': {
                     const { name, arguments: args } = params;
-                    const toolResult = await this.enqueueToolExecution(name, args);
+                    const toolResult = await this.enqueueToolExecution(name, args, id);
                     const { imageContent, ...toolResultText } = toolResult || {};
                     const content: any[] = [{ type: 'text', text: JSON.stringify(toolResultText) }];
                     if (Array.isArray(imageContent)) {
@@ -1310,14 +1365,18 @@ export class MCPServer {
         return body.includes('\'') || body.includes(',}') || body.includes(',]') || body.includes('\n') || body.includes('\t');
     }
 
-    private async enqueueToolExecution(toolName: string, args: any): Promise<any> {
+    private async enqueueToolExecution(toolName: string, args: any, requestId?: string | number | null): Promise<any> {
         if (this.toolQueue.length >= MCPServer.MAX_TOOL_QUEUE_LENGTH) {
             throw new Error('Tool queue is full, please retry later');
         }
 
+        const callId = MCPServer.createUuid();
         return new Promise((resolve, reject) => {
             this.toolQueue.push({
-                run: () => this.executeToolCall(toolName, args),
+                toolName,
+                callId,
+                requestId,
+                run: (startedAt: number) => this.executeToolCall(toolName, args, { callId, requestId, startedAt }),
                 resolve,
                 reject
             });
@@ -1331,15 +1390,27 @@ export class MCPServer {
             if (!task) break;
 
             this.activeToolCount++;
-
+            const startedAt = Date.now();
+            let timeoutHandle: NodeJS.Timeout;
             const timeoutPromise = new Promise((_, reject) => {
-                setTimeout(() => reject(new Error(`Tool execution timeout (${MCPServer.TOOL_EXECUTION_TIMEOUT_MS}ms)`)), MCPServer.TOOL_EXECUTION_TIMEOUT_MS);
+                timeoutHandle = setTimeout(() => {
+                    this.logToolTrace({
+                        event: 'timeout',
+                        callId: task.callId,
+                        requestId: task.requestId,
+                        tool: task.toolName,
+                        durationMs: Date.now() - startedAt,
+                        success: false
+                    });
+                    reject(new Error(`Tool execution timeout (${MCPServer.TOOL_EXECUTION_TIMEOUT_MS}ms)`));
+                }, MCPServer.TOOL_EXECUTION_TIMEOUT_MS);
             });
 
-            Promise.race([task.run(), timeoutPromise])
+            Promise.race([task.run(startedAt), timeoutPromise])
                 .then((result) => task.resolve(result))
                 .catch((err) => task.reject(err))
                 .finally(() => {
+                    clearTimeout(timeoutHandle);
                     this.activeToolCount--;
                     this.processNextToolQueue();
                 });
