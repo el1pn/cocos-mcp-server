@@ -126,4 +126,11 @@ export function unload() {
         mcpServer.stop();
         mcpServer = null;
     }
+    // The editor re-requires main.js on reload but Node keeps its submodules cached,
+    // so a reload would keep running the old tools. Drop everything under dist/.
+    for (const key of Object.keys(require.cache)) {
+        if (key.startsWith(__dirname)) {
+            delete require.cache[key];
+        }
+    }
 }
