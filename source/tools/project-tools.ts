@@ -75,18 +75,22 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'asset_crud',
-                description: 'Create/modify/manage assets. Actions: create, copy, move, delete, save (content), reimport, import (external file), refresh (asset DB).',
+                description: 'Create/modify/manage assets. Actions: create, copy, move, delete, save (content), reimport, import (external file), refresh (asset DB), get_meta, set_meta (import settings in .meta).',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'The CRUD action to perform',
-                            enum: ['create', 'copy', 'move', 'delete', 'save', 'reimport', 'import', 'refresh']
+                            enum: ['create', 'copy', 'move', 'delete', 'save', 'reimport', 'import', 'refresh', 'get_meta', 'set_meta']
                         },
                         url: {
                             type: 'string',
-                            description: 'Asset URL (create, delete, save, reimport)'
+                            description: 'Asset URL (create, delete, save, reimport, get_meta, set_meta)'
+                        },
+                        metaChanges: {
+                            type: 'object',
+                            description: 'Deep-merged into the .meta, e.g. {"userData":{"compressSettings":{...}}} or {"subMetas":{"<id>":{"userData":{...}}}}; get_meta first (set_meta)'
                         },
                         content: {
                             type: 'string',
@@ -146,14 +150,26 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'project_build',
-                description: 'Inspect Cocos builder state. Actions: open_build_panel, get_build_settings (readiness only, full settings not exposed via MCP), check_builder_status. Cannot trigger an actual build/run/preview from MCP — user must start it manually.',
+                description: 'Cocos builder. Actions: build (queue a build task, returns at once; runs the project\'s build plugins, which may edit source files), build_status (poll tasks), cancel_build, open_build_panel, get_build_settings, check_builder_status.',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'The build action to perform',
-                            enum: ['get_build_settings', 'open_build_panel', 'check_builder_status']
+                            enum: ['build', 'build_status', 'cancel_build', 'get_build_settings', 'open_build_panel', 'check_builder_status']
+                        },
+                        platform: {
+                            type: 'string',
+                            description: 'e.g. web-mobile, android, ios; defaults to the newest task\'s platform (build)'
+                        },
+                        buildOptions: {
+                            type: 'object',
+                            description: 'Overrides, e.g. {"debug":true,"md5Cache":true}; the builder validates and fills the rest (build)'
+                        },
+                        taskId: {
+                            type: 'string',
+                            description: 'Task id from build (build_status: one task, else all; cancel_build: required)'
                         }
                     },
                     required: ['action']
@@ -231,8 +247,12 @@ export class ProjectTools implements ToolExecutor {
                 return await this.importAsset(args.sourcePath, args.targetFolder);
             case 'refresh':
                 return await this.refreshAssets(args.folder);
+            case 'get_meta':
+                return await this.getAssetMeta(args.url);
+            case 'set_meta':
+                return await this.setAssetMeta(args.url, args.metaChanges);
             default:
-                throw new Error(`Unknown asset_crud action: ${action}`);
+                return { success: false, error: `Unknown action '${action}'. Valid actions: create, copy, move, delete, save, reimport, import, refresh, get_meta, set_meta` };
         }
     }
 
@@ -255,9 +275,81 @@ export class ProjectTools implements ToolExecutor {
                 return await this.openBuildPanel();
             case 'check_builder_status':
                 return await this.checkBuilderStatus();
+            case 'build':
+                return await this.startBuild(args.platform, args.buildOptions);
+            case 'build_status':
+                return await this.buildStatus(args.taskId);
+            case 'cancel_build':
+                if (!args.taskId) return { success: false, error: 'taskId is required' };
+                return toolCall(() => editorRequest('builder', 'break-task', args.taskId), () => ({ message: `Cancel requested for ${args.taskId}` }));
             default:
-                throw new Error(`Unknown project_build action: ${args.action}`);
+                return { success: false, error: `Unknown action '${args.action}'. Valid actions: build, build_status, cancel_build, get_build_settings, open_build_panel, check_builder_status` };
         }
+    }
+
+    // add-task queues happily on bad options and an already-busy builder, so validate
+    // with the builder's own check-and-complete-options and report any task ahead.
+    private async startBuild(platform?: string, overrides?: any): Promise<ToolResponse> {
+        try {
+            const before = await editorRequest<any>('builder', 'query-tasks-info', { type: 'build' });
+            const tasks: any[] = before?.list ?? [];
+            // Task ids are creation timestamps; the list order is not reliable.
+            const newest = [...tasks].sort((a, b) => Number(b.id) - Number(a.id))[0];
+            const options = { ...(overrides ?? {}), platform: platform || overrides?.platform || newest?.options?.platform };
+            if (!options.platform) {
+                return { success: false, error: 'platform is required (no previous build task to take it from)' };
+            }
+            let completed: any;
+            try {
+                completed = await editorRequest<any>('builder', 'check-and-complete-options', options);
+            } catch (err: any) {
+                const cfg = await editorRequest<any>('builder', 'query-platform-config').catch(() => null);
+                return { success: false, error: `Builder rejected the options: ${err?.message ?? err}.${cfg?.order ? ` Valid platforms: ${cfg.order.join(', ')}` : ''}` };
+            }
+            const known = new Set(tasks.map(t => t.id));
+            // shouldWait=false: returns TaskAddResult right away (0 busy, 1 queued, 2 param error).
+            const code = await editorRequest<number>('builder', 'add-task', completed, false);
+            if (code !== 1) {
+                return { success: false, error: `add-task returned ${code === 0 ? 'BUSY' : code === 2 ? 'PARAM_ERROR' : code}` };
+            }
+            const after = await editorRequest<any>('builder', 'query-tasks-info', { type: 'build' });
+            const task = (after?.list ?? []).find((t: any) => !known.has(t.id));
+            const ahead = tasks.filter(t => t.state === 'processing' || t.state === 'waiting').map(t => t.id);
+            return {
+                success: true,
+                message: 'Build queued; poll build_status with taskId',
+                data: {
+                    taskId: task?.id,
+                    platform: completed.platform,
+                    dest: `${completed.buildPath}/${completed.outputName}`,
+                    ...(ahead.length && { queuedBehind: ahead })
+                }
+            };
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
+    }
+
+    private async buildStatus(taskId?: string): Promise<ToolResponse> {
+        const brief = (t: any) => ({
+            id: t.id,
+            state: t.state,
+            progress: t.progress,
+            message: t.message,
+            detailMessage: t.detailMessage,
+            platform: t.options?.platform,
+            dest: t.options && `${t.options.buildPath}/${t.options.outputName}`
+        });
+        if (taskId) {
+            return toolCall(
+                () => editorRequest<any>('builder', 'query-task', taskId),
+                (t) => (t ? { data: brief(t) } : { success: false, error: `No build task ${taskId}` })
+            );
+        }
+        return toolCall(
+            () => editorRequest<any>('builder', 'query-tasks-info', { type: 'build' }),
+            (info) => ({ data: { free: info?.free, tasks: (info?.list ?? []).map(brief) } })
+        );
     }
 
     private async getProjectInfo(): Promise<ToolResponse> {
@@ -443,12 +535,7 @@ export class ProjectTools implements ToolExecutor {
             (ready) => ({
                 data: {
                     builderReady: ready,
-                    message: 'Build settings are limited in MCP plugin environment',
-                    availableActions: [
-                        'Open build panel with open_build_panel',
-                        'Check builder status with check_builder_status'
-                    ],
-                    limitation: 'Full build configuration requires direct Editor UI access'
+                    message: 'Use build_status for the options of past tasks; build validates and completes options itself'
                 }
             })
         );
@@ -600,6 +687,50 @@ export class ProjectTools implements ToolExecutor {
             () => editorRequest('asset-db', 'reimport-asset', validated),
             () => ({ data: { url: validated, message: 'Asset reimported successfully' } })
         );
+    }
+
+    private async getAssetMeta(url: string): Promise<ToolResponse> {
+        const validated = tryValidateAssetUrl(url, { allowInternal: true });
+        if (!validated) {
+            return { success: false, error: `Invalid asset URL: ${url}` };
+        }
+        return toolCall(
+            () => editorRequest<any>('asset-db', 'query-asset-meta', validated),
+            (meta) => (meta ? { data: { url: validated, meta } } : { success: false, error: `Asset not found: ${validated}` })
+        );
+    }
+
+    private async setAssetMeta(url: string, changes: any): Promise<ToolResponse> {
+        const validated = tryValidateAssetUrl(url);
+        if (!validated) {
+            return { success: false, error: `Invalid asset URL: ${url}` };
+        }
+        if (!changes || typeof changes !== 'object' || Array.isArray(changes)) {
+            return { success: false, error: 'metaChanges must be an object' };
+        }
+        // Changing these would orphan every reference to the asset or confuse the importer.
+        const locked = ['uuid', 'importer', 'ver'].filter(k => k in changes);
+        if (locked.length) {
+            return { success: false, error: `metaChanges cannot change: ${locked.join(', ')}` };
+        }
+        // Objects merge key by key; anything else (incl. arrays) replaces.
+        const merge = (base: any, patch: any): any => {
+            if (!patch || typeof patch !== 'object' || Array.isArray(patch)) return patch;
+            const out = base && typeof base === 'object' && !Array.isArray(base) ? { ...base } : {};
+            for (const [k, v] of Object.entries(patch)) out[k] = merge(out[k], v);
+            return out;
+        };
+        try {
+            const meta = await editorRequest<any>('asset-db', 'query-asset-meta', validated);
+            if (!meta) {
+                return { success: false, error: `Asset not found: ${validated}` };
+            }
+            const next = merge(meta, changes);
+            await editorRequest('asset-db', 'save-asset-meta', validated, JSON.stringify(next, null, 2));
+            return { success: true, data: { url: validated, meta: next } };
+        } catch (err: any) {
+            return { success: false, error: err?.message ?? String(err) };
+        }
     }
 
     private async queryAssetPath(url: string): Promise<ToolResponse> {
