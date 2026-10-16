@@ -1,7 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ComponentInfo } from '../types';
 import { resolveSpriteFrameUuid } from '../utils/asset-utils';
 import { editorRequest } from '../utils/editor-request';
-import { resolveNodeRefFields } from '../utils/node-resolver';
+import { resolveNodeRefFields, resolveNodeUuid } from '../utils/node-resolver';
 import { logger } from '../logger';
 
 export class ComponentTools implements ToolExecutor {
@@ -96,7 +96,7 @@ export class ComponentTools implements ToolExecutor {
                                 'color', 'vec2', 'vec3', 'size',
                                 'node', 'component', 'spriteFrame', 'prefab', 'asset',
                                 'nodeArray', 'colorArray', 'numberArray', 'stringArray',
-                                'assetArray', 'spriteFrameArray'
+                                'assetArray', 'spriteFrameArray', 'eventHandlerArray'
                             ]
                         },
 
@@ -113,7 +113,8 @@ export class ComponentTools implements ToolExecutor {
                                 'color: {r,g,b,a} 0-255 or "#FF0000". vec2: {x,y}. vec3: {x,y,z}. size: {width,height}. ' +
                                 'node/spriteFrame/prefab/asset: target UUID string (get_all_nodes/asset browser to find it). ' +
                                 'component: UUID of the NODE holding the target component (type auto-detected from property metadata, resolved to its scene __id__). ' +
-                                '*Array variants: JSON array of the above (e.g. numberArray: [1,2,3], nodeArray: ["uuid1","uuid2"]).'
+                                '*Array variants: JSON array of the above (e.g. numberArray: [1,2,3], nodeArray: ["uuid1","uuid2"]). ' +
+                                'eventHandlerArray (e.g. Button.clickEvents): [{target: node UUID, component: script class name, handler: method name, customEventData?}]; replaces the whole list, [] clears it.'
                         }
                     },
                     required: ['nodeUuid', 'componentType', 'property', 'propertyType', 'value']
@@ -767,6 +768,24 @@ export class ComponentTools implements ToolExecutor {
                             throw new Error('SpriteFrameArray value must be an array');
                         }
                         break;
+                    case 'eventHandlerArray':
+                        if (!Array.isArray(value)) {
+                            throw new Error('eventHandlerArray value must be an array');
+                        }
+                        processedValue = await Promise.all(value.map(async (item: any, i: number) => {
+                            if (!item || typeof item.target !== 'string' || typeof item.component !== 'string' || typeof item.handler !== 'string') {
+                                throw new Error(`eventHandlerArray[${i}] needs string target, component and handler`);
+                            }
+                            const target = await resolveNodeUuid(item.target);
+                            // Only `component` is written: the engine derives `_componentId` from it on load.
+                            return {
+                                target: { type: 'cc.Node', value: { uuid: target } },
+                                component: { type: 'String', value: item.component },
+                                handler: { type: 'String', value: item.handler },
+                                customEventData: { type: 'String', value: String(item.customEventData ?? '') }
+                            };
+                        }));
+                        break;
                     default:
                         throw new Error(`Unsupported property type: ${propertyType}`);
                 }
@@ -1107,6 +1126,39 @@ export class ComponentTools implements ToolExecutor {
                         logger.error(`[ComponentTools] Error setting component reference: ${(error as any)?.message ?? String(error)}`);
                         throw error;
                     }
+                } else if (propertyType === 'eventHandlerArray') {
+                    // Clear first, then set per index: set-property neither extends nor shrinks
+                    // an array when given a whole new value.
+                    await editorRequest('scene', 'set-property', {
+                        uuid: nodeUuid,
+                        path: propertyPath,
+                        dump: { type: 'cc.ClickEvent', isArray: true, value: [] }
+                    });
+                    for (let i = 0; i < processedValue.length; i++) {
+                        await editorRequest('scene', 'set-property', {
+                            uuid: nodeUuid,
+                            path: `${propertyPath}.${i}`,
+                            dump: { type: 'cc.ClickEvent', value: processedValue[i] }
+                        });
+                    }
+                    // The generic verifier compares raw dumps; compare the plain fields instead.
+                    const after = await editorRequest('scene', 'query-node', nodeUuid);
+                    const slim = (ev: any) => ({
+                        target: ev.target.value?.uuid ?? '',
+                        component: ev.component.value,
+                        handler: ev.handler.value,
+                        customEventData: ev.customEventData.value
+                    });
+                    const actual = (after?.__comps__?.[rawComponentIndex]?.value?.[property]?.value ?? []).map((e: any) => slim(e.value));
+                    const expected = processedValue.map(slim);
+                    const verified = JSON.stringify(actual) === JSON.stringify(expected);
+                    return {
+                        success: verified,
+                        ...(verified
+                            ? { message: `Successfully set ${componentType}.${property}` }
+                            : { error: `Set ${componentType}.${property} did not stick` }),
+                        data: { nodeUuid, componentType, property, actualValue: actual, changeVerified: verified }
+                    };
                 } else if (
                     Array.isArray(processedValue) &&
                     ['nodeArray', 'assetArray', 'spriteFrameArray', 'colorArray', 'numberArray', 'stringArray'].includes(propertyType)
