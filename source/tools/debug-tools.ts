@@ -1,6 +1,7 @@
 import { ToolDefinition, ToolResponse, ToolExecutor, ValidationResult, ValidationIssue } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
+import { execFile } from 'child_process';
 import { editorRequest, toolCall } from '../utils/editor-request';
 import { resolveNodeRefFields } from '../utils/node-resolver';
 
@@ -69,14 +70,19 @@ export class DebugTools implements ToolExecutor {
             {
                 name: 'debug_inspect',
                 annotations: { readOnlyHint: true },
-                description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info, probe_cce_api.',
+                description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info, probe_cce_api, check_scripts (tsc type errors in project scripts).',
                 inputSchema: {
                     type: 'object',
                     properties: {
                         action: {
                             type: 'string',
                             description: 'Action to perform',
-                            enum: ['get_node_tree', 'get_performance_stats', 'validate_scene', 'get_editor_info', 'probe_cce_api']
+                            enum: ['get_node_tree', 'get_performance_stats', 'validate_scene', 'get_editor_info', 'probe_cce_api', 'check_scripts']
+                        },
+                        maxResults: {
+                            type: 'number',
+                            description: 'Max diagnostics to return (check_scripts)',
+                            default: 50
                         },
                         rootUuid: {
                             type: 'string',
@@ -199,8 +205,10 @@ export class DebugTools implements ToolExecutor {
                         return await this.getEditorInfo();
                     case 'probe_cce_api':
                         return await this.probeCceApi(args.namespace, args.nodeUuid);
+                    case 'check_scripts':
+                        return await this.checkScripts(args.maxResults);
                     default:
-                        throw new Error(`Unknown action: ${args.action}`);
+                        return { success: false, error: `Unknown action '${args.action}'. Valid actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info, probe_cce_api, check_scripts` };
                 }
             case 'debug_logs':
                 switch (args.action) {
@@ -473,6 +481,52 @@ export class DebugTools implements ToolExecutor {
         }
 
         return results;
+    }
+
+    // Type errors the editor's own compile (which strips types) never reports.
+    private async checkScripts(maxResults: number = 50): Promise<ToolResponse> {
+        const projectPath: string = Editor.Project.path;
+        const tsconfig = path.join(projectPath, 'tsconfig.json');
+        if (!fs.existsSync(tsconfig)) {
+            return { success: false, error: `No tsconfig.json in ${projectPath}` };
+        }
+        // Prefer the project's own TypeScript, else the copy bundled with the editor.
+        const tsc = [
+            path.join(projectPath, 'node_modules', 'typescript', 'bin', 'tsc'),
+            path.join(`${Editor.App.path}.unpacked`, 'node_modules', 'typescript', 'bin', 'tsc')
+        ].find(p => fs.existsSync(p));
+        if (!tsc) {
+            return { success: false, error: 'TypeScript compiler not found in the project or the editor' };
+        }
+        const run = (extra: string[]) => new Promise<{ code: number; out: string }>(resolve => {
+            // ELECTRON_RUN_AS_NODE makes the editor binary behave as plain Node.
+            execFile(process.execPath, [tsc, '--noEmit', '--pretty', 'false', '-p', tsconfig, ...extra], {
+                cwd: projectPath,
+                env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' },
+                maxBuffer: 32 * 1024 * 1024,
+                timeout: 180_000
+            }, (err: any, stdout, stderr) => resolve({ code: err ? (typeof err.code === 'number' ? err.code : -1) : 0, out: `${stdout}${stderr}` }));
+        });
+        let { code, out } = await run([]);
+        // A tsconfig written for a newer TypeScript (e.g. ignoreDeprecations "6.0") fails before checking anything.
+        if (/error TS5103:.*ignoreDeprecations/.test(out)) {
+            ({ code, out } = await run(['--ignoreDeprecations', '5.0']));
+        }
+        const re = /^(.+?)\((\d+),(\d+)\): (error|warning) (TS\d+): (.*)$/;
+        const diagnostics = out.split('\n').map(l => re.exec(l.trim())).filter(Boolean)
+            .map(m => ({ file: m![1], line: Number(m![2]), column: Number(m![3]), severity: m![4], code: m![5], message: m![6] }));
+        if (code !== 0 && diagnostics.length === 0) {
+            return { success: false, error: `tsc exited ${code}: ${out.slice(0, 2000)}` };
+        }
+        return {
+            success: true,
+            data: {
+                compiler: tsc,
+                errorCount: diagnostics.length,
+                returned: Math.min(diagnostics.length, maxResults),
+                diagnostics: diagnostics.slice(0, maxResults)
+            }
+        };
     }
 
     private async getEditorInfo(): Promise<ToolResponse> {
