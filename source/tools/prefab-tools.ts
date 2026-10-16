@@ -82,7 +82,7 @@ export class PrefabTools implements ToolExecutor {
                         },
                         folder: {
                             type: 'string',
-                            description: 'Folder path to search (get_list, optional)',
+                            description: 'Folder path to search (get_list, optional). db://internal/default_prefab lists the editor\'s built-in Button, ScrollView, EditBox, etc., instantiable via node_lifecycle create assetPath',
                             default: 'db://assets'
                         }
                     },
