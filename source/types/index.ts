@@ -41,6 +41,8 @@ export interface ToolDefinition {
     name: string;
     description: string;
     inputSchema: ToolInputSchema;
+    // MCP tool annotations; clients use readOnlyHint to auto-approve calls.
+    annotations?: { readOnlyHint?: boolean };
 }
 
 export interface ToolResponse {
@@ -111,13 +113,6 @@ export interface ProjectInfo {
     uuid: string;
     version: string;
     cocosVersion: string;
-}
-
-export interface ConsoleMessage {
-    timestamp: string;
-    type: 'log' | 'warn' | 'error' | 'info';
-    message: string;
-    stack?: string;
 }
 
 export interface PerformanceStats {

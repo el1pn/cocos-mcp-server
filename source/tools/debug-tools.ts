@@ -1,42 +1,30 @@
-import { ToolDefinition, ToolResponse, ToolExecutor, ConsoleMessage, ValidationResult, ValidationIssue } from '../types';
-import { logger } from '../logger';
+import { ToolDefinition, ToolResponse, ToolExecutor, ValidationResult, ValidationIssue } from '../types';
 import * as fs from 'fs';
 import * as path from 'path';
 import { editorRequest, toolCall } from '../utils/editor-request';
 import { resolveNodeRefFields } from '../utils/node-resolver';
 
+// Editor.Logger (main process) records console output from every editor process,
+// i.e. exactly what the Console panel shows.
+function editorLogs(): any[] {
+    return (Editor as any).Logger?.query?.() ?? [];
+}
+
+function slimLog(entry: any) {
+    return {
+        type: entry.type,
+        message: entry.message,
+        time: entry.time,
+        ...(entry.type === 'error' && entry.stack ? { stack: entry.stack } : {})
+    };
+}
+
 export class DebugTools implements ToolExecutor {
-    private consoleMessages: ConsoleMessage[] = [];
-    private readonly maxMessages = 1000;
-
-    constructor() {
-        this.setupConsoleCapture();
-    }
-
-    private setupConsoleCapture(): void {
-        // Intercept Editor console messages
-        // Note: Editor.Message.addBroadcastListener may not be available in all versions
-        // This is a placeholder for console capture implementation
-        logger.info('Console capture setup - implementation depends on Editor API availability');
-    }
-
-    private addConsoleMessage(message: any): void {
-        this.consoleMessages.push({
-            timestamp: new Date().toISOString(),
-            ...message
-        });
-
-        // Keep only latest messages
-        if (this.consoleMessages.length > this.maxMessages) {
-            this.consoleMessages.shift();
-        }
-    }
-
     getTools(): ToolDefinition[] {
         return [
             {
                 name: 'debug_console',
-                description: 'Manage editor console. Actions: get_logs, clear, execute_script (run JS in scene context).',
+                description: 'Editor Console panel. Actions: get_logs, clear, execute_script (run JS; returns its result and the console output it produced).',
                 inputSchema: {
                     type: 'object',
                     properties: {
@@ -56,9 +44,23 @@ export class DebugTools implements ToolExecutor {
                             enum: ['all', 'log', 'warn', 'error', 'info'],
                             default: 'all'
                         },
+                        contains: {
+                            type: 'string',
+                            description: 'Only logs whose message contains this text (get_logs)'
+                        },
+                        since: {
+                            type: 'number',
+                            description: 'Cursor from a previous get_logs nextCursor; return only newer logs (get_logs)'
+                        },
                         script: {
                             type: 'string',
-                            description: 'JavaScript code to execute (execute_script)'
+                            description: 'JavaScript async function body; use return for a result (execute_script)'
+                        },
+                        context: {
+                            type: 'string',
+                            description: 'scene: renderer, `cc` in scope. editor: main process, `Editor`/`require` in scope (execute_script)',
+                            enum: ['scene', 'editor'],
+                            default: 'scene'
                         }
                     },
                     required: ['action']
@@ -66,6 +68,7 @@ export class DebugTools implements ToolExecutor {
             },
             {
                 name: 'debug_inspect',
+                annotations: { readOnlyHint: true },
                 description: 'Inspect/validate scene. Actions: get_node_tree, get_performance_stats, validate_scene, get_editor_info, probe_cce_api.',
                 inputSchema: {
                     type: 'object',
@@ -113,6 +116,7 @@ export class DebugTools implements ToolExecutor {
             },
             {
                 name: 'debug_logs',
+                annotations: { readOnlyHint: true },
                 description: 'Manage project log files (temp/logs/project.log). Actions: get_project_logs, get_log_file_info, search_logs.',
                 inputSchema: {
                     type: 'object',
@@ -174,13 +178,13 @@ export class DebugTools implements ToolExecutor {
                 const action = args.action;
                 switch (action) {
                     case 'get_logs':
-                        return await this.getConsoleLogs(args.limit, args.filter);
+                        return this.getConsoleLogs(args.limit, args.filter, args.contains, args.since);
                     case 'clear':
                         return await this.clearConsole();
                     case 'execute_script':
-                        return await this.executeScript(args.script);
+                        return await this.executeScript(args.script, args.context);
                     default:
-                        throw new Error(`Unknown action: ${action}`);
+                        return { success: false, error: `Unknown action '${action}'. Valid actions: get_logs, clear, execute_script` };
                 }
             }
             case 'debug_inspect':
@@ -214,13 +218,17 @@ export class DebugTools implements ToolExecutor {
         }
     }
 
-    private async getConsoleLogs(limit: number = 100, filter: string = 'all'): Promise<ToolResponse> {
-        let logs = this.consoleMessages;
-
+    private getConsoleLogs(limit: number = 100, filter: string = 'all', contains?: string, since?: number): ToolResponse {
+        const all = editorLogs();
+        // The cursor is an index into the editor's log array; a clear shrinks it, so restart from 0.
+        const start = typeof since === 'number' && since >= 0 && since <= all.length ? since : 0;
+        let logs = all.slice(start);
         if (filter !== 'all') {
             logs = logs.filter(log => log.type === filter);
         }
-
+        if (contains) {
+            logs = logs.filter(log => String(log.message).includes(contains));
+        }
         const recentLogs = logs.slice(-limit);
 
         return {
@@ -228,39 +236,61 @@ export class DebugTools implements ToolExecutor {
             data: {
                 total: logs.length,
                 returned: recentLogs.length,
-                logs: recentLogs
+                nextCursor: all.length,
+                logs: recentLogs.map(slimLog)
             }
         };
     }
 
     private async clearConsole(): Promise<ToolResponse> {
-        this.consoleMessages = [];
-
         try {
-            // Note: Editor.Message.send may not return a promise in all versions
-            Editor.Message.send('console', 'clear');
-            return {
-                success: true,
-                message: 'Console cleared successfully'
-            };
+            // Logger.clear also empties the Console panel.
+            (Editor as any).Logger.clear();
+            return { success: true, message: 'Console cleared successfully' };
         } catch (err: any) {
             return { success: false, error: err.message };
         }
     }
 
-    private async executeScript(script: string): Promise<ToolResponse> {
+    private async executeScript(script: string, context: string = 'scene'): Promise<ToolResponse> {
+        if (!script) {
+            return { success: false, error: 'script is required' };
+        }
+        if (context !== 'scene' && context !== 'editor') {
+            return { success: false, error: `Unknown context '${context}'. Valid contexts: scene, editor` };
+        }
+        const before = editorLogs().length;
+        // Logs from the scene process reach Editor.Logger over IPC, slightly after the call returns.
+        const consoleOutput = async () => {
+            if (context === 'scene') { await new Promise(r => setTimeout(r, 50)); }
+            return editorLogs().slice(before).slice(-50).map(slimLog);
+        };
+
+        if (context === 'editor') {
+            try {
+                const AsyncFunction = Object.getPrototypeOf(async function () { /* noop */ }).constructor;
+                const result = await new AsyncFunction('Editor', 'require', script)(Editor, require);
+                let safe = result;
+                try { JSON.stringify(result); } catch { safe = String(result); }
+                return { success: true, data: { result: safe, console: await consoleOutput() } };
+            } catch (err: any) {
+                return { success: false, error: err?.message || String(err), data: { console: await consoleOutput() } };
+            }
+        }
+
         // Runs in this extension's own scene script — the built-in `console` scene
         // script it used to target does not exist in 3.8.x.
-        return toolCall(
+        const response = await toolCall(
             () => editorRequest<any>('scene', 'execute-scene-script', {
                 name: 'cocos-mcp-server',
                 method: 'evalScript',
                 args: [script]
             }),
             (result) => (result?.success
-                ? { data: { result: result.data?.result, message: 'Script executed successfully' } }
+                ? { data: { result: result.data?.result } }
                 : { success: false, error: result?.error || 'Script execution failed' })
         );
+        return { ...response, data: { ...response.data, console: await consoleOutput() } };
     }
 
     private async probeCceApi(namespace?: string, nodeUuid?: string): Promise<ToolResponse> {
