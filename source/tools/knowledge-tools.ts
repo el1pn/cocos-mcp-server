@@ -18,6 +18,7 @@ export class KnowledgeTools implements ToolExecutor {
         return [
             {
                 name: 'knowledge_query',
+                annotations: { readOnlyHint: true },
                 description: 'Look up editor type information: component types, their property schemas, registered classes, and built-in enums/layers. Use before setting a component property to confirm the exact property name and type. Available actions: list_component_types, describe_component, list_classes, has_script, list_enum, list_layers.',
                 inputSchema: {
                     type: 'object',

@@ -8,6 +8,7 @@ export class AssetAdvancedTools implements ToolExecutor {
         return [
             {
                 name: 'asset_advanced',
+                annotations: { readOnlyHint: true },
                 description: 'Advanced asset ops: generate available URLs, check DB readiness, get dependencies, find unused assets.',
                 inputSchema: {
                     type: 'object',

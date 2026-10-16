@@ -5,6 +5,7 @@ export class ValidationTools implements ToolExecutor {
         return [
             {
                 name: 'validation',
+                annotations: { readOnlyHint: true },
                 description: 'Validate and format JSON/MCP data. Actions: validate_json (validate and fix JSON parameters), safe_string (create a safe string value for JSON), format_request (format a complete MCP request with proper JSON escaping)',
                 inputSchema: {
                     type: 'object',

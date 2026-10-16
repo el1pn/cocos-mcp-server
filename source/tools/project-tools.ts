@@ -9,6 +9,7 @@ export class ProjectTools implements ToolExecutor {
         return [
             {
                 name: 'asset_query',
+                annotations: { readOnlyHint: true },
                 description: 'Query asset info. Actions: get_info, get_assets (by type), find_by_name, get_details (with sub-assets), query_path (URL→disk path), query_uuid (URL→UUID), query_url (UUID→URL).',
                 inputSchema: {
                     type: 'object',
@@ -123,6 +124,7 @@ export class ProjectTools implements ToolExecutor {
             },
             {
                 name: 'project_info',
+                annotations: { readOnlyHint: true },
                 description: 'Get project info/settings. Actions: get_info (name, path, UUID, version), get_settings (by category).',
                 inputSchema: {
                     type: 'object',

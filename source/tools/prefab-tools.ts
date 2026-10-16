@@ -66,6 +66,7 @@ export class PrefabTools implements ToolExecutor {
             },
             {
                 name: 'prefab_query',
+                annotations: { readOnlyHint: true },
                 description: 'Read-only metadata queries about prefab assets on disk — no editor side-effects. Use prefab_lifecycle "open" to edit, "instantiate" to place into current scene.',
                 inputSchema: {
                     type: 'object',

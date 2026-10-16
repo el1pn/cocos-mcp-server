@@ -114,6 +114,7 @@ export class NodeTools implements ToolExecutor {
             },
             {
                 name: 'node_query',
+                annotations: { readOnlyHint: true },
                 description: 'Query and inspect nodes in the scene. Available actions: get_info, find_by_pattern, find_by_name, get_all, detect_type.',
                 inputSchema: {
                     type: 'object',

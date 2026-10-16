@@ -29,6 +29,7 @@ export class ServerTools implements ToolExecutor {
         return [
             {
                 name: 'server_info',
+                annotations: { readOnlyHint: true },
                 description: 'Query server and network information. Actions: get_ip_list (query server IP list), get_sorted_ip_list (get sorted server IP list), get_port (query editor server current port), get_status (get comprehensive server status), check_connectivity (check server connectivity and network status), get_network_interfaces (get available network interfaces)',
                 inputSchema: {
                     type: 'object',

@@ -7,6 +7,7 @@ export class SearchTools implements ToolExecutor {
         return [
             {
                 name: 'search_project',
+                annotations: { readOnlyHint: true },
                 description:
                     'Search files in the Cocos Creator project. Available actions: ' +
                     'content (search file contents by text or regex), ' +

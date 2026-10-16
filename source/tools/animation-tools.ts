@@ -28,6 +28,7 @@ export class AnimationTools implements ToolExecutor {
         return [
             {
                 name: 'animation_query',
+                annotations: { readOnlyHint: true },
                 description: 'Inspect animation clips and playback state on a node. Read-only — clip editing is not supported. Available actions: list_clips, get_clip, get_state, get_properties, get_current.',
                 inputSchema: {
                     type: 'object',

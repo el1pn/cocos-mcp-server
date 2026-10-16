@@ -36,6 +36,7 @@ export class ComponentTools implements ToolExecutor {
             },
             {
                 name: 'component_query',
+                annotations: { readOnlyHint: true },
                 description: 'Query component information: get all components on a node, get specific component info, or list available component types. Available actions: get_all, get_info, get_available.',
                 inputSchema: {
                     type: 'object',

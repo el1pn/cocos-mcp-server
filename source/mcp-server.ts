@@ -173,7 +173,8 @@ export class MCPServer {
                 this.toolsList.push({
                     name: tool.name,
                     description: tool.description,
-                    inputSchema: tool.inputSchema
+                    inputSchema: tool.inputSchema,
+                    ...(tool.annotations && { annotations: tool.annotations })
                 });
                 this.toolExecutors.set(tool.name, (args: any) => toolSet.execute(tool.name, args));
             }
