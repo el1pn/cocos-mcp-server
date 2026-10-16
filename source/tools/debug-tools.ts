@@ -501,11 +501,11 @@ export class DebugTools implements ToolExecutor {
             // Apply filters
             let filteredLines = recentLines;
 
-            // Filter by log level if not 'ALL'
+            // Filter by log level if not 'ALL'. Editor lines read "<date> <time> - <level>: ...";
+            // match that marker only, so a level word inside a message body doesn't count.
             if (logLevel !== 'ALL') {
-                filteredLines = filteredLines.filter(line =>
-                    line.includes(`[${logLevel}]`) || line.includes(logLevel.toLowerCase())
-                );
+                const marker = ` - ${logLevel.toLowerCase()}:`;
+                filteredLines = filteredLines.filter(line => line.includes(marker));
             }
 
             // Filter by keyword if provided
@@ -613,12 +613,12 @@ export class DebugTools implements ToolExecutor {
             const logLines = logContent.split('\n');
 
             // Create regex pattern (support both string and regex patterns)
+            // No 'g' flag: test() is per line, so no lastIndex to manage.
             let regex: RegExp;
             try {
-                regex = new RegExp(pattern, 'gi');
-            } catch {
-                // If pattern is not valid regex, treat as literal string
-                regex = new RegExp(pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi');
+                regex = new RegExp(pattern, 'i');
+            } catch (e: any) {
+                return { success: false, error: `Invalid regex pattern: ${e.message}. Matching is already case-insensitive; inline flags like (?i) are not supported.` };
             }
 
             const matches: any[] = [];
@@ -647,9 +647,6 @@ export class DebugTools implements ToolExecutor {
                     });
 
                     resultCount++;
-
-                    // Reset regex lastIndex for global search
-                    regex.lastIndex = 0;
                 }
             }
 
