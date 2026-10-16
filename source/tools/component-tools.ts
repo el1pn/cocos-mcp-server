@@ -167,8 +167,8 @@ export class ComponentTools implements ToolExecutor {
      * both shapes seen across the codebase: extracted (from getComponents) and raw (from query-node).
      */
     private static componentMatches(comp: any, componentType: string): boolean {
-        const t = comp?.type ?? comp?.__type__ ?? comp?.cid;
-        if (t === componentType) return true;
+        // A query-node dump carries both the class name (type) and the cid; accept either.
+        if (componentType && [comp?.type, comp?.__type__, comp?.cid].includes(componentType)) return true;
         const instanceName: string | undefined =
             comp?.properties?.name?.value ?? comp?.value?.name?.value ?? comp?.name?.value;
         return typeof instanceName === 'string' && instanceName.endsWith(`<${componentType}>`);
@@ -434,11 +434,8 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private extractComponentProperties(component: any): Record<string, any> {
-        logger.info(`[extractComponentProperties] Processing component: ${JSON.stringify(Object.keys(component))}`);
-
         // Check if component has value property, which usually contains the actual component properties
         if (component.value && typeof component.value === 'object') {
-            logger.info(`[extractComponentProperties] Found component.value with properties: ${JSON.stringify(Object.keys(component.value))}`);
             return component.value; // Return value object directly, it contains all component properties
         }
 
@@ -448,12 +445,10 @@ export class ComponentTools implements ToolExecutor {
 
         for (const key in component) {
             if (!excludeKeys.includes(key) && !key.startsWith('_')) {
-                logger.info(`[extractComponentProperties] Found direct property '${key}': ${typeof component[key]}`);
                 properties[key] = component[key];
             }
         }
 
-        logger.info(`[extractComponentProperties] Final extracted properties: ${JSON.stringify(Object.keys(properties))}`);
         return properties;
     }
 
@@ -1603,35 +1598,17 @@ export class ComponentTools implements ToolExecutor {
     }
 
     private async verifyPropertyChange(nodeUuid: string, componentType: string, property: string, originalValue: any, expectedValue: any): Promise<{ verified: boolean; actualValue: any; fullData: any }> {
-        logger.info(`[verifyPropertyChange] Starting verification for ${componentType}.${property}`);
-        logger.info(`[verifyPropertyChange] Expected value: ${JSON.stringify(expectedValue)}`);
-        logger.info(`[verifyPropertyChange] Original value: ${JSON.stringify(originalValue)}`);
-
         try {
             // Re-get component info for verification
-            logger.info(`[verifyPropertyChange] Calling getComponentInfo...`);
             const componentInfo = await this.getComponentInfo(nodeUuid, componentType);
-            logger.info(`[verifyPropertyChange] getComponentInfo success: ${componentInfo.success}`);
-
-            const allComponents = await this.getComponents(nodeUuid);
-            logger.info(`[verifyPropertyChange] getComponents success: ${allComponents.success}`);
 
             if (componentInfo.success && componentInfo.data) {
-                logger.info(`[verifyPropertyChange] Component data available, extracting property '${property}'`);
-                const allPropertyNames = Object.keys(componentInfo.data.properties || {});
-                logger.info(`[verifyPropertyChange] Available properties: ${JSON.stringify(allPropertyNames)}`);
                 const propertyData = componentInfo.data.properties?.[property];
-                logger.info(`[verifyPropertyChange] Raw property data for '${property}': ${JSON.stringify(propertyData)}`);
 
                 // Extract actual value from property data
                 let actualValue = propertyData;
-                logger.info(`[verifyPropertyChange] Initial actualValue: ${JSON.stringify(actualValue)}`);
-
                 if (propertyData && typeof propertyData === 'object' && 'value' in propertyData) {
                     actualValue = propertyData.value;
-                    logger.info(`[verifyPropertyChange] Extracted actualValue from .value: ${JSON.stringify(actualValue)}`);
-                } else {
-                    logger.info(`[verifyPropertyChange] No .value property found, using raw data`);
                 }
 
                 // Fix verification logic: check if actual value matches expected value
@@ -1642,44 +1619,23 @@ export class ComponentTools implements ToolExecutor {
                     const actualUuid = actualValue && typeof actualValue === 'object' && 'uuid' in actualValue ? actualValue.uuid : '';
                     const expectedUuid = expectedValue.uuid || '';
                     verified = actualUuid === expectedUuid && expectedUuid !== '';
-
-                    logger.info(`[verifyPropertyChange] Reference comparison:`);
-                    logger.info(`  - Expected UUID: "${expectedUuid}"`);
-                    logger.info(`  - Actual UUID: "${actualUuid}"`);
-                    logger.info(`  - UUID match: ${actualUuid === expectedUuid}`);
-                    logger.info(`  - UUID not empty: ${expectedUuid !== ''}`);
-                    logger.info(`  - Final verified: ${verified}`);
                 } else {
                     // For other types, compare values directly
-                    logger.info(`[verifyPropertyChange] Value comparison:`);
-                    logger.info(`  - Expected type: ${typeof expectedValue}`);
-                    logger.info(`  - Actual type: ${typeof actualValue}`);
-
                     if (typeof actualValue === typeof expectedValue) {
                         if (typeof actualValue === 'object' && actualValue !== null && expectedValue !== null) {
                             // Deep comparison for object types
                             verified = JSON.stringify(actualValue) === JSON.stringify(expectedValue);
-                            logger.info(`  - Object comparison (JSON): ${verified}`);
                         } else {
                             // Direct comparison for basic types
                             verified = actualValue === expectedValue;
-                            logger.info(`  - Direct comparison: ${verified}`);
                         }
                     } else {
                         // Special handling for type mismatch (e.g., number and string)
-                        const stringMatch = String(actualValue) === String(expectedValue);
-                        const numberMatch = Number(actualValue) === Number(expectedValue);
-                        verified = stringMatch || numberMatch;
-                        logger.info(`  - String match: ${stringMatch}`);
-                        logger.info(`  - Number match: ${numberMatch}`);
-                        logger.info(`  - Type mismatch verified: ${verified}`);
+                        verified = String(actualValue) === String(expectedValue) || Number(actualValue) === Number(expectedValue);
                     }
                 }
 
-                logger.info(`[verifyPropertyChange] Final verification result: ${verified}`);
-                logger.info(`[verifyPropertyChange] Final actualValue: ${JSON.stringify(actualValue)}`);
-
-                const result = {
+                return {
                     verified,
                     actualValue,
                     fullData: {
@@ -1700,18 +1656,12 @@ export class ComponentTools implements ToolExecutor {
                         }
                     }
                 };
-
-                logger.info(`[verifyPropertyChange] Returning result: ${JSON.stringify(result, null, 2)}`);
-                return result;
-            } else {
-                logger.info(`[verifyPropertyChange] ComponentInfo failed or no data: ${JSON.stringify(componentInfo)}`);
             }
+            logger.warn(`[verifyPropertyChange] Could not re-read ${componentType}.${property}: ${componentInfo.error}`);
         } catch (error) {
-            logger.error(`[verifyPropertyChange] Verification failed with error: ${(error as any)?.message ?? String(error)}`);
-            logger.error(`[verifyPropertyChange] Error stack: ${error instanceof Error ? error.stack : 'No stack trace'}`);
+            logger.error(`[verifyPropertyChange] Verification failed: ${error instanceof Error ? error.stack : String(error)}`);
         }
 
-        logger.info(`[verifyPropertyChange] Returning fallback result`);
         return {
             verified: false,
             actualValue: undefined,
